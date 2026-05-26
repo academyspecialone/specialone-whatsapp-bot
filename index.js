@@ -7,6 +7,9 @@ create({
   useChrome: true,
   qrTimeout: 0,
   authTimeout: 0,
+  qrLogSkip: false,
+  qrRefreshS: 20,
+  cacheEnabled: false,
   chromiumArgs: [
     '--no-sandbox',
     '--disable-setuid-sandbox',
@@ -15,7 +18,12 @@ create({
     '--no-first-run',
     '--no-zygote',
     '--single-process'
-  ]
+  ],
+  qrCallback: (qrCode, asciiQR) => {
+    console.log('========== QR WHATSAPP ==========');
+    console.log(asciiQR);
+    console.log('========== FIN QR ==========');
+  }
 }).then(client => start(client));
 
 function start(client) {
