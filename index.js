@@ -3,7 +3,19 @@ const { create } = require('@open-wa/wa-automate');
 create({
   sessionId: 'specialone',
   multiDevice: true,
-  headless: true
+  headless: true,
+  useChrome: true,
+  qrTimeout: 0,
+  authTimeout: 0,
+  chromiumArgs: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-first-run',
+    '--no-zygote',
+    '--single-process'
+  ]
 }).then(client => start(client));
 
 function start(client) {
