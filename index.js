@@ -1,17 +1,20 @@
 const { create } = require('@open-wa/wa-automate');
 
 create({
-  sessionId: 'specialone',
-  multiDevice: true,
-  headless: 'new',
-  useChrome: true,
-  waitForRipeSession: false,
-  qrTimeout: 0,
-  authTimeout: 0,
-  qrLogSkip: false,
-  qrRefreshS: 20,
-  cacheEnabled: false,
-  chromiumArgs: [
+sessionId: 'specialone',
+deleteSessionDataOnLogout: true,
+qrTimeout: 0,
+authTimeout: 0,
+multiDevice: true,
+headless: 'new',
+useChrome: true,
+waitForRipeSession: false,
+qrTimeout: 0,
+authTimeout: 0,
+qrLogSkip: false,
+qrRefreshS: 20,
+cacheEnabled: false,
+chromiumArgs: [
     '--no-sandbox',
     '--disable-setuid-sandbox',
     '--disable-dev-shm-usage',
