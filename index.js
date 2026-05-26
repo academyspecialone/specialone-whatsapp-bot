@@ -1,33 +1,15 @@
 const { create } = require('@open-wa/wa-automate');
 
 create({
-sessionId: 'specialone',
-deleteSessionDataOnLogout: true,
-qrTimeout: 0,
-authTimeout: 0,
-multiDevice: true,
-headless: 'new',
-useChrome: true,
-waitForRipeSession: false,
-qrTimeout: 0,
-authTimeout: 0,
-qrLogSkip: false,
-qrRefreshS: 20,
-cacheEnabled: false,
-chromiumArgs: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-gpu',
-    '--no-first-run',
-    '--no-zygote',
-    '--single-process'
-  ],
-  qrCallback: (qrCode, asciiQR) => {
-    console.log('========== QR WHATSAPP ==========');
-    console.log(asciiQR);
-    console.log('========== FIN QR ==========');
-  }
+  sessionId: 'specialone',
+  multiDevice: true,
+  headless: 'new',
+  useChrome: false,
+  qrTimeout: 0,
+  authTimeout: 0,
+  waitForRipeSession: false,
+  qrLogSkip: false,
+  cacheEnabled: false
 }).then(client => start(client));
 
 function start(client) {
