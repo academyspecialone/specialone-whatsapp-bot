@@ -1,4 +1,8 @@
-const { create } = require('@open-wa/wa-automate');
+const { create, ev } = require('@open-wa/wa-automate');
+
+ev.on('qr.**', async (qrcode, sessionId) => {
+  console.log(qrcode);
+});
 
 create({
   sessionId: 'specialone2',
