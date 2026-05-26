@@ -3,8 +3,9 @@ const { create } = require('@open-wa/wa-automate');
 create({
   sessionId: 'specialone',
   multiDevice: true,
-  headless: true,
+  headless: 'new',
   useChrome: true,
+  waitForRipeSession: false,
   qrTimeout: 0,
   authTimeout: 0,
   qrLogSkip: false,
