@@ -35,7 +35,9 @@ async function startBot() {
       const shouldReconnect =
         lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
-      console.log('❌ Conexión cerrada');
+console.log('❌ Conexión cerrada');
+console.log('Motivo:', JSON.stringify(lastDisconnect?.error, null, 2));
+console.log('StatusCode:', lastDisconnect?.error?.output?.statusCode);
 
       if (shouldReconnect) {
         startBot();
