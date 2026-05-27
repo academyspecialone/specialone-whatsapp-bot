@@ -1,72 +1,34 @@
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason
-} = require('@whiskeysockets/baileys');
-
-const P = require('pino');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
-async function startBot() {
-
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-
-  const sock = makeWASocket({
-  auth: state,
-  logger: P({ level: 'silent' }),
-  browser: ['Chrome', 'Desktop', '1.0.0'],
-  syncFullHistory: false,
-  markOnlineOnConnect: true,
-  generateHighQualityLinkPreview: false
+const client = new Client({
+  authStrategy: new LocalAuth({
+    clientId: 'specialone'
+  }),
+  puppeteer: {
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  }
 });
 
-  sock.ev.on('creds.update', saveCreds);
+client.on('qr', (qr) => {
+  console.log('===== QR WHATSAPP =====');
+  qrcode.generate(qr, { small: true });
+  console.log('===== ESCANEA EL QR =====');
+});
 
-  sock.ev.on('connection.update', (update) => {
-    const { connection, qr, lastDisconnect } = update;
+client.on('ready', () => {
+  console.log('✅ BOT SPECIAL ONE ONLINE');
+});
 
-    if (qr) {
-      console.log('===== QR WHATSAPP =====');
-      qrcode.generate(qr, { small: true });
-      console.log('===== ESCANEA EL QR =====');
-    }
+client.on('message', async (message) => {
+  const text = message.body.toLowerCase();
 
-    if (connection === 'open') {
-      console.log('✅ BOT SPECIAL ONE ONLINE');
-    }
+  if (text.includes('hola') || text.includes('info')) {
+    await message.reply('👋 Hola, soy el asistente de Special One Academy. ¿Quieres información sobre programas, ubicación o inscripción?');
+  } else {
+    await message.reply('Gracias por escribir a Special One Academy. Te responderemos lo antes posible.');
+  }
+});
 
-    if (connection === 'close') {
-      const shouldReconnect =
-        lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-
-console.log('❌ Conexión cerrada');
-console.log('Motivo:', JSON.stringify(lastDisconnect?.error, null, 2));
-console.log('StatusCode:', lastDisconnect?.error?.output?.statusCode);
-
-      if (shouldReconnect) {
-        startBot();
-      }
-    }
-  });
-
-  sock.ev.on('messages.upsert', async ({ messages }) => {
-
-    const msg = messages[0];
-    if (!msg.message) return;
-
-    const text =
-      msg.message.conversation ||
-      msg.message.extendedTextMessage?.text ||
-      '';
-
-    const sender = msg.key.remoteJid;
-
-    console.log('Mensaje:', text);
-
-    await sock.sendMessage(sender, {
-      text: '👋 Hola, soy el asistente de Special One Academy. Hemos recibido tu mensaje.'
-    });
-  });
-}
-
-startBot();
+client.initialize();
