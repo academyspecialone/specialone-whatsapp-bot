@@ -14,6 +14,7 @@ let qrImage = '';
 
 const conversations = new Map();
 const pausedChats = new Map();
+const botSentMessages = new Map();
 
 const CEO_NUMBERS = [
   '34637993550@c.us',
@@ -42,13 +43,23 @@ function sleep(ms) {
 }
 
 function humanDelay(text) {
-  const min = 7000;
-  const extra = Math.min(text.length * 45, 14000);
-  return min + extra + Math.floor(Math.random() * 4000);
+  const min = 1800;
+  const extra = Math.min((text || '').length * 25, 7000);
+  return min + extra + Math.floor(Math.random() * 1800);
+}
+
+function markBotMessage(chatId) {
+  botSentMessages.set(chatId, Date.now());
+}
+
+function wasRecentlySentByBot(chatId) {
+  const last = botSentMessages.get(chatId);
+  if (!last) return false;
+  return Date.now() - last < 30000;
 }
 
 function isEnglish(text) {
-  return /\b(hello|hi|price|training|academy|football|soccer|player|schedule|where|how much|english|international)\b/i.test(text);
+  return /\b(hello|hi|price|training|academy|football|soccer|player|schedule|where|how much|english|international|information|register|sign up)\b/i.test(text);
 }
 
 function getMadridHour() {
@@ -72,32 +83,49 @@ function pauseChat(chatId, hours = 2) {
 
 function isPaused(chatId) {
   const until = pausedChats.get(chatId);
+
   if (!until) return false;
+
   if (Date.now() > until) {
     pausedChats.delete(chatId);
     return false;
   }
+
   return true;
 }
 
 function shouldAlertCEO(text) {
-  const t = text.toLowerCase();
+  const t = (text || '').toLowerCase();
+
   return (
     t.includes('descuento') ||
     t.includes('rebaja') ||
     t.includes('queja') ||
     t.includes('reclamación') ||
+    t.includes('reclamar') ||
     t.includes('jefe') ||
     t.includes('director') ||
+    t.includes('dirección') ||
     t.includes('ceo') ||
     t.includes('fuera de plazo') ||
     t.includes('urgente') ||
+    t.includes('problema') ||
+    t.includes('molesto') ||
+    t.includes('enfadado') ||
+    t.includes('devolución') ||
+    t.includes('devolver') ||
+    t.includes('dinero') ||
     t.includes('hablar con manuel') ||
     t.includes('hablar con ivan') ||
     t.includes('hablar con iván') ||
     t.includes('audio') ||
     t.includes('nota de voz')
   );
+}
+
+async function sendDanielaMessage(chatId, text) {
+  markBotMessage(chatId);
+  await client.sendMessage(chatId, text);
 }
 
 async function alertCEOs({ from, userMessage, reason, aiResponse }) {
@@ -114,11 +142,24 @@ Mensaje recibido:
 Respuesta de Daniela:
 "${aiResponse || 'Pendiente'}"
 
-Daniela ha pausado este chat durante 2 horas para que podáis atenderlo vosotros si hace falta.`;
+El chat queda pausado durante 2 horas para que podáis intervenir si lo veis necesario.`;
 
   for (const ceo of CEO_NUMBERS) {
-    await client.sendMessage(ceo, alertText);
+    try {
+      await client.sendMessage(ceo, alertText);
+    } catch (error) {
+      console.error(`Error avisando a CEO ${ceo}:`, error);
+    }
   }
+}
+
+async function safeOpenAIRequest(payload) {
+  return Promise.race([
+    openai.chat.completions.create(payload),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('OpenAI timeout')), 20000)
+    )
+  ]);
 }
 
 async function getDanielaResponse(from, text) {
@@ -127,97 +168,108 @@ async function getDanielaResponse(from, text) {
   const english = isEnglish(text);
 
   const systemPrompt = `
-Eres Daniela, recepcionista de Special One Academy.
+Eres Daniela, recepcionista humana de Special One Academy.
 
-Tu objetivo NO es responder como un bot. Tu objetivo es atender, orientar, vender con elegancia y llevar siempre el control de la conversación.
+No eres un bot comercial.
+No pareces ChatGPT.
+No dices que eres inteligencia artificial.
+Trabajas en la academia y atiendes WhatsApp como una persona real.
 
 PERSONALIDAD:
-- Humana, cercana, tranquila, educada y profesional.
+- Cercana, humana, tranquila, educada y profesional.
 - Hablas de usted.
-- Tono andaluz suave, sin exagerar.
-- Frases naturales y cortas.
-- No suenes comercial agresiva.
-- No uses listas largas salvo que sea imprescindible.
-- No digas "soy una IA".
-- Si la conversación se alarga, puedes preguntar: "Si le parece bien, puedo tutearle para que sea más cómodo."
+- Natural, sin sonar perfecta.
+- Frases cortas.
+- No uses respuestas largas.
+- No uses listas salvo que sea necesario.
+- No abuses de emojis. Solo 😊 o ⚽ cuando tenga sentido.
+- No empieces repitiendo lo que el cliente acaba de decir.
+- Evita frases tipo "Entiendo que..." salvo que sea natural.
+- Siempre debes avanzar la conversación con una pregunta útil.
 
 SALUDO:
-Si es primer contacto o saludo inicial:
-"Hola 😊 Soy Daniela de Special One. ¿En qué puedo ayudarle?"
+Si es primer contacto o saludo inicial, responde solo:
+"Hola 😊 Soy Daniela de Special One.
+
+¿En qué puedo ayudarle?"
 
 HORARIO:
-- De 09:00 a 22:00 actúas como Daniela normal.
-- De 22:00 a 09:00, si escriben en español, respondes como asistente automático fuera de horario:
-"Ahora mismo el equipo está fuera de horario 😊 Dejo su consulta registrada para que la revisemos con calma. Aun así, si me indica brevemente qué necesita, intento orientarle."
-No mantengas conversación larga fuera de horario en español.
-- Si escriben en inglés, puedes atender 24h.
+- Horario humano: 09:00 a 22:00.
+- Fuera de horario, en español, responde breve:
+"Ahora mismo estamos fuera de horario 😊
 
-CONTROL DE CONVERSACIÓN:
-Daniela siempre debe llevar el mando.
-Después de responder, debe hacer UNA pregunta útil para avanzar.
-No hagas interrogatorios largos. Pide datos poco a poco.
+Dejo su consulta anotada para revisarla en cuanto volvamos.
+
+Si me indica brevemente qué necesita intentaré orientarle."
+- Fuera de horario no mantengas conversaciones largas.
+- Si escriben en inglés, atiende en inglés.
 
 INFORMACIÓN REAL:
-Special One Academy es una academia de tecnificación y formación futbolística en Sevilla.
-Sede: Club Río Grande, Ctra. San Juan Palomares, 9, 41927 Mairena del Aljarafe, Sevilla.
-Teléfono oficial: +34 614 80 60 29.
+Special One Academy es una academia de tecnificación y formación futbolística.
+Ubicación: Club Río Grande, Ctra. San Juan Palomares, 9, 41927 Mairena del Aljarafe, Sevilla.
+Teléfono: +34 614 80 60 29.
 Email: academyspecialone@gmail.com.
-Instagram/TikTok: @specialoneacademy_.
+Instagram y TikTok: @specialoneacademy_.
 Categorías: desde prebenjamín hasta juvenil.
 
 PROGRAMAS:
 1. Special One Training:
-Tecnificación permanente durante temporada, grupos reducidos, mejora técnica, táctica, física y mental.
+Tecnificación semanal durante la temporada.
+Grupos reducidos.
+Trabajo técnico, táctico, físico y mental.
 Formulario: ${TRAINING_FORM}
 
 2. Special One Experience:
-Clinics de Navidad, Semana Santa, verano y eventos especiales.
+Clinics de Navidad, Semana Santa y verano.
+No tiene formulario permanente.
 Solo hay formulario cuando hay clinic activo.
-Si preguntan por un clinic que no está abierto, recoge interés y di que le avisaremos cuando esté confirmado.
+Nunca inventes precios.
 
 3. Special One International Experience:
-Para jugadores internacionales que quieren vivir una experiencia formativa dentro del fútbol español.
+Programa internacional para jugadores extranjeros.
 Formulario: ${INTERNATIONAL_FORM}
 
 PRECIOS:
-- No inventes precios.
-- Special One Training depende de días, formato y necesidades.
-- Special One Experience puede tener precio cerrado cuando se abra cada clinic.
-- Si preguntan por precio, responde con naturalidad y conduce a recoger datos.
-- Si insisten mucho en descuento: "Lo consulto con dirección y le digo algo en cuanto pueda."
+Nunca inventes precios.
+Training depende de días y formato.
+Experience depende de cada clinic.
+International depende del programa.
+Si piden precio, recoge primero información básica y orienta sin inventar.
 
 FORMULARIOS:
-No pidas una lista larga de datos si puedes enviar formulario.
-Primero pregunta el nombre de la persona.
-Luego, según interés:
-- Training: envía ${TRAINING_FORM}
-- International: envía ${INTERNATIONAL_FORM}
-- Experience/clinics: si no hay clinic activo, no envíes formulario. Recoge interés.
+No hagas interrogatorios largos.
+Primero pregunta el nombre del jugador.
+Después, si procede, envía formulario.
 
-ESCALADO A DIRECCIÓN:
-Debes avisar a dirección si:
-- No sabes responder con seguridad.
+DESCUENTOS:
+No hay descuentos generales.
+Si insisten, responde:
+"Lo consulto con dirección y le digo algo en cuanto pueda."
+Y añade [[AVISAR_CEO]].
+
+ESCALADO:
+Añade exactamente [[AVISAR_CEO]] si:
 - Hay queja.
+- Hay reclamación.
 - Piden descuento.
-- Piden hablar con Manuel, Iván, jefes o dirección.
-- Inscripción fuera de plazo.
-- Consulta compleja.
-- Audio o nota de voz.
-- Precios, plazas u horarios exactos no confirmados.
-- Cliente está molesto o muy insistente.
-
-Si hay que avisar a dirección, añade al final EXACTAMENTE:
-[[AVISAR_CEO]]
+- Solicitan hablar con dirección.
+- Piden hablar con Manuel o Iván.
+- Hay inscripción fuera de plazo.
+- Hay una situación compleja.
+- No sabes responder con seguridad.
+- Cliente está molesto o insistente.
+- Preguntan precios, plazas u horarios exactos no confirmados.
+- Hay audio o nota de voz.
 
 IDIOMA:
-Si escriben en inglés, responde en inglés con naturalidad.
+Si escriben en inglés, responde completamente en inglés.
 
 CONTEXTO:
 Fuera de horario: ${outOfHours ? 'SÍ' : 'NO'}
 Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
 `;
 
-  const completion = await openai.chat.completions.create({
+  const completion = await safeOpenAIRequest({
     model: 'gpt-4o-mini',
     messages: [
       { role: 'system', content: systemPrompt },
@@ -225,10 +277,15 @@ Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
       { role: 'user', content: text }
     ],
     temperature: 0.72,
-    max_tokens: 420
+    max_tokens: 360
   });
 
-  let response = completion.choices[0].message.content || '';
+  let response = completion?.choices?.[0]?.message?.content || '';
+
+  if (!response.trim()) {
+    response = 'Disculpe, ahora mismo no he podido revisar bien su mensaje. ¿Puede repetírmelo brevemente?';
+  }
+
   const escalate = response.includes('[[AVISAR_CEO]]') || shouldAlertCEO(text);
 
   response = response.replace('[[AVISAR_CEO]]', '').trim();
@@ -237,7 +294,7 @@ Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
     ...history,
     { role: 'user', content: text },
     { role: 'assistant', content: response }
-  ].slice(-14));
+  ].slice(-12));
 
   return { response, escalate };
 }
@@ -252,38 +309,52 @@ client.on('ready', () => {
 });
 
 client.on('message_create', async (message) => {
-  if (!message.fromMe) return;
+  try {
+    if (!message.fromMe) return;
 
-  const chatId = message.to || message.from;
-  const body = (message.body || '').trim().toLowerCase();
+    const chatId = message.to || message.from;
+    const body = (message.body || '').trim().toLowerCase();
 
-  if (!chatId || CEO_NUMBERS.includes(chatId)) return;
+    if (!chatId) return;
 
-  if (body === '/activar') {
-    pausedChats.delete(chatId);
-    return;
-  }
+    if (CEO_NUMBERS.includes(chatId)) return;
 
-  if (body.startsWith('/pausar')) {
+    if (body === '/activar') {
+      pausedChats.delete(chatId);
+      console.log(`Chat reactivado manualmente: ${chatId}`);
+      return;
+    }
+
+    if (body.startsWith('/pausar')) {
+      pauseChat(chatId, 2);
+      console.log(`Chat pausado manualmente: ${chatId}`);
+      return;
+    }
+
+    if (wasRecentlySentByBot(chatId)) {
+      return;
+    }
+
     pauseChat(chatId, 2);
-    return;
-  }
+    console.log(`Chat pausado por intervención humana real desde WhatsApp empresa: ${chatId}`);
 
-  pauseChat(chatId, 2);
-  console.log(`Chat pausado por intervención humana: ${chatId}`);
+  } catch (error) {
+    console.error('Error en message_create:', error);
+  }
 });
 
 client.on('message', async (message) => {
   try {
     const from = message.from;
 
-    if (isPaused(from)) return;
+    if (!from) return;
     if (message.fromMe) return;
+    if (isPaused(from)) return;
 
     if (message.hasMedia || message.type === 'ptt' || message.type === 'audio') {
       const reply = 'Disculpe, ahora mismo no puedo escuchar audios desde aquí. Si le parece, escríbame la consulta por texto y le ayudo encantada 😊';
 
-      await client.sendMessage(from, reply);
+      await sendDanielaMessage(from, reply);
 
       await alertCEOs({
         from,
@@ -300,13 +371,20 @@ client.on('message', async (message) => {
     if (!text) return;
 
     const chat = await message.getChat();
-    await chat.sendStateTyping();
+
+    try {
+      await chat.sendStateTyping();
+    } catch {}
 
     const { response, escalate } = await getDanielaResponse(from, text);
 
     await sleep(humanDelay(response));
-    await client.sendMessage(from, response);
-    await chat.clearState();
+
+    await sendDanielaMessage(from, response);
+
+    try {
+      await chat.clearState();
+    } catch {}
 
     if (escalate) {
       await alertCEOs({
@@ -324,7 +402,8 @@ client.on('message', async (message) => {
 
     try {
       const fallback = 'Disculpe, estoy teniendo un pequeño problema ahora mismo. Dejo su mensaje anotado para que el equipo lo revise lo antes posible.';
-      await client.sendMessage(message.from, fallback);
+
+      await sendDanielaMessage(message.from, fallback);
 
       await alertCEOs({
         from: message.from,
@@ -334,7 +413,9 @@ client.on('message', async (message) => {
       });
 
       pauseChat(message.from, 2);
-    } catch {}
+    } catch (fallbackError) {
+      console.error('Error enviando fallback:', fallbackError);
+    }
   }
 });
 
