@@ -1,4 +1,6 @@
-FROM node:22-bullseye
+FROM node:20-bullseye
+
+WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
   chromium \
@@ -12,11 +14,13 @@ RUN apt-get update && apt-get install -y \
   fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
 COPY package*.json ./
+
 RUN npm install
 
 COPY . .
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV NODE_ENV=production
 
 CMD ["npm", "start"]
