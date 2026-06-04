@@ -27,8 +27,9 @@ const PREPRETEMPORADA_FORM = 'https://tally.so/r/XxG5eO';
 
 const client = new Client({
   authStrategy: new LocalAuth({
-    clientId: 'specialone-clean-1'
-  }),
+  clientId: 'specialone-clean-1',
+  dataPath: '/app/.wwebjs_auth'
+}),
   puppeteer: {
     headless: true,
     args: [
