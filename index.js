@@ -11,6 +11,7 @@ const AUTH_PATH = '/app/.wwebjs_auth';
 
 function cleanChromiumLocks(dir) {
   if (!fs.existsSync(dir)) return;
+
   const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
 
   function scan(currentPath) {
@@ -23,8 +24,10 @@ function cleanChromiumLocks(dir) {
 
     for (const item of items) {
       const fullPath = path.join(currentPath, item.name);
-      if (item.isDirectory()) scan(fullPath);
-      else if (lockFiles.includes(item.name)) {
+
+      if (item.isDirectory()) {
+        scan(fullPath);
+      } else if (lockFiles.includes(item.name)) {
         try {
           fs.rmSync(fullPath, { force: true });
           console.log(`Lock Chromium eliminado: ${fullPath}`);
@@ -88,7 +91,7 @@ function sleep(ms) {
 
 function humanDelay(text) {
   const length = (text || '').length;
-  const base = 4500;
+  const base = 5500;
   const extra = Math.min(length * 45, 9000);
   return base + extra + Math.floor(Math.random() * 3000);
 }
@@ -102,10 +105,13 @@ function normalizeText(text) {
 
 function normalizePhone(raw) {
   if (!raw) return null;
+
   let digits = raw.replace(/\D/g, '');
+
   if (digits.startsWith('00')) digits = digits.slice(2);
   if (digits.startsWith('34') && digits.length === 11) return `${digits}@c.us`;
   if (digits.length === 9) return `34${digits}@c.us`;
+
   return null;
 }
 
@@ -119,27 +125,43 @@ function activateChat(chatId) {
 
 function isPaused(chatId) {
   const until = pausedChats.get(chatId);
+
   if (!until) return false;
+
   if (Date.now() > until) {
     pausedChats.delete(chatId);
     return false;
   }
+
   return true;
 }
 
 function markBotMessage(chatId, body) {
   botSentMessages.set(chatId, Date.now());
+
   if (body) {
-    recentBotBodies.set(normalizeText(body).slice(0, 180), Date.now());
+    const key = normalizeText(body).slice(0, 180);
+    recentBotBodies.set(key, Date.now());
+
+    setTimeout(() => {
+      recentBotBodies.delete(key);
+    }, 90000);
   }
 }
 
 function wasRecentlySentByBot(chatId, body) {
   const last = botSentMessages.get(chatId);
-  if (last && Date.now() - last < 45000) return true;
 
-  const bodyTime = recentBotBodies.get(normalizeText(body).slice(0, 180));
-  if (bodyTime && Date.now() - bodyTime < 45000) return true;
+  if (last && Date.now() - last < 90000) {
+    return true;
+  }
+
+  const key = normalizeText(body).slice(0, 180);
+  const bodyTime = recentBotBodies.get(key);
+
+  if (bodyTime && Date.now() - bodyTime < 90000) {
+    return true;
+  }
 
   return false;
 }
@@ -150,7 +172,7 @@ async function sendDanielaMessage(chatId, text) {
 }
 
 function isEnglish(text) {
-  return /\b(hello|hi|price|training|academy|football|soccer|player|schedule|where|how much|english|international|information|register|sign up)\b/i.test(text);
+  return /\b(hello|hi|price|training|academy|football|soccer|player|schedule|where|how much|english|international|information|register|sign up|summer|camp|clinic)\b/i.test(text);
 }
 
 function getMadridHour() {
@@ -191,6 +213,7 @@ function shouldAlertCEO(text) {
     t.includes('dinero') ||
     t.includes('hablar con manuel') ||
     t.includes('hablar con ivan') ||
+    t.includes('hablar con iván') ||
     t.includes('otra persona') ||
     t.includes('persona real') ||
     t.includes('audio') ||
@@ -209,7 +232,7 @@ function isPrePretemporadaFormConfirmation(text) {
 }
 
 async function alertCEOs({ from, userMessage, reason, aiResponse }) {
-  const cleanPhone = from.replace('@c.us', '');
+  const cleanPhone = from.replace('@c.us', '').replace('@lid', '');
 
   const alertText =
 `🚨 DANIELA - AVISO A DIRECCIÓN
@@ -259,76 +282,76 @@ async function getDanielaResponse(from, text) {
   const systemPrompt = `
 Eres Daniela, recepcionista de Special One Academy por WhatsApp.
 
-OBJETIVO PRINCIPAL:
-Atender como una recepcionista real: natural, breve, cercana y útil.
-No respondas como una ficha técnica.
-No respondas como una web.
-No respondas como un folleto comercial.
-No intentes decir todo lo que sabes.
+MISIÓN:
+Atender como una recepcionista real de una academia de fútbol.
+Tu trabajo es escuchar, entender, orientar y avanzar la conversación sin parecer un bot.
 
-REGLA CRÍTICA:
-Cada respuesta debe tener máximo 80 palabras salvo que el cliente pida expresamente "toda la información".
-Normalmente responde en 2 a 5 líneas.
-Da una sola idea principal por mensaje.
-Haz como máximo una pregunta.
-No mandes precios, horarios, formulario y explicación completa juntos.
+MUY IMPORTANTE:
+No eres una FAQ.
+No eres una web.
+No eres un folleto.
+No sueltes toda la información de golpe.
+No hagas interrogatorios largos.
+No inventes datos.
 
-IDENTIDAD:
-No digas que eres IA.
-No digas que eres bot.
-No digas "soy una persona".
-Si preguntan si eres IA, máquina o bot, responde:
-"Soy Daniela, de Special One 😊 Le ayudo desde aquí con la información de la academia."
-Y vuelve al tema.
-
-TONO:
-Habla de usted.
-Cercana, humana, tranquila y profesional.
-No uses frases perfectas ni corporativas.
-No digas "asistirle".
-No digas "información específica".
-No digas "lamento si mis respuestas".
-No digas "estoy aquí para ayudarle de la mejor manera posible".
-No suenes defensiva.
-No uses listas salvo que el cliente pida precios, horarios o resumen.
+ESTILO:
+- Natural, breve, humana y cercana.
+- Hablas de usted.
+- Tono andaluz suave, sin exagerar.
+- Máximo 80 palabras normalmente.
+- 2 a 5 líneas.
+- Una sola idea principal por mensaje.
+- Máximo una pregunta por mensaje.
+- No uses listas salvo que el cliente pida claramente resumen, precios u horarios.
+- No abuses de emojis. Puedes usar 😊 o ⚽ si encaja.
+- No digas "soy IA".
+- No digas "soy bot" dentro de horario.
+- No digas "asistirle".
+- No digas "información específica".
+- No uses lenguaje corporativo.
 
 SALUDO:
-Si solo saluda, responde exactamente:
+Si el cliente solo saluda, responde:
 "Hola 😊 Soy Daniela de Special One.
 
 ¿En qué puedo ayudarle?"
 
 HORARIO:
-Horario de atención: 09:00 a 22:00.
-Si está fuera de horario:
+Horario normal: 09:00 a 22:00.
+Fuera de horario, si habla en español:
 "Ahora mismo estamos fuera de horario 😊
 
 Dejo su consulta anotada para revisarla en cuanto volvamos.
 
 Si me indica brevemente qué necesita intentaré orientarle."
 
-EMPRESA:
-Special One Academy.
+Fuera de horario no mantengas conversaciones largas en español.
+Si escribe en inglés, puedes atender en inglés.
+
+SPECIAL ONE ACADEMY:
 Academia de tecnificación y formación futbolística.
-Ubicación: Club Río Grande, Ctra. San Juan Palomares, 9, 41927 Mairena del Aljarafe, Sevilla.
+Sede: Club Río Grande, Ctra. San Juan Palomares, 9, 41927 Mairena del Aljarafe, Sevilla.
 Teléfono: +34 614 80 60 29.
 Email: academyspecialone@gmail.com.
-Instagram y TikTok: @specialoneacademy_.
+Instagram/TikTok: @specialoneacademy_.
+Categorías: desde prebenjamín hasta juvenil.
 
 PROGRAMAS:
 Special One Training:
 Tecnificación semanal durante la temporada.
+Grupos reducidos.
 Formulario: ${TRAINING_FORM}
 
 Special One Experience:
-Clinics y eventos especiales de Navidad, Semana Santa, verano y otros eventos puntuales.
+Clinics y eventos especiales de Navidad, Semana Santa, verano y otros eventos.
+Solo hay formulario cuando hay clinic abierto.
 
 Special One International Experience:
-Programa internacional.
+Programa internacional para jugadores extranjeros o jugadores que buscan experiencia en fútbol español.
 Formulario: ${INTERNATIONAL_FORM}
 
 PRE PRETEMPORADA SPECIAL ONE 2026:
-Es lo principal que se está ofreciendo ahora.
+Es la campaña principal actual de verano.
 Fechas: del 29 de junio al 31 de julio.
 Objetivo: mantener ritmo competitivo en verano y llegar mejor a la pretemporada del equipo.
 Trabajo: físico aplicado al fútbol, fuerza, agilidad, coordinación, control, pase, conducción, regate, finalización y situaciones reales de juego.
@@ -342,9 +365,8 @@ Camiseta oficial: 15€.
 Equipación completa camiseta + calzona: 20€.
 Formulario: ${PREPRETEMPORADA_FORM}
 
-CÓMO RESPONDER SOBRE VERANO:
-Si preguntan algo general tipo "tenéis algo en verano", NO mandes formulario ni precios.
-Respuesta ideal:
+CÓMO HABLAR DE VERANO:
+Si pregunta "tenéis algo en verano", responde algo parecido a:
 "Sí 😊 Ahora en verano estamos preparando la Pre Pretemporada Special One.
 
 Son entrenamientos durante julio para que el jugador no pierda ritmo y llegue mejor a la pretemporada.
@@ -352,41 +374,58 @@ Son entrenamientos durante julio para que el jugador no pierda ritmo y llegue me
 ¿Sería para su hijo?"
 
 Si pregunta "en qué consiste":
-Explica solo objetivo y tipo de trabajo. No des precios ni formulario salvo que lo pida.
+Explica objetivo y tipo de trabajo. No des precios si no los pide.
 
-Si pregunta "precios":
-Da solo precios y promoción. No mandes horarios salvo que lo pida.
+Si pregunta "precio":
+Da precios y promoción. No mandes todo lo demás.
 
-Si pregunta "días":
-Da solo días y horarios. No mandes precios salvo que lo pida.
+Si pregunta "horario":
+Da horarios. No mandes todo lo demás.
 
-Si pregunta "quiero apuntarme", "inscripción", "formulario" o "reservar":
-Manda el formulario y una explicación breve.
-
-RESPUESTA DE INSCRIPCIÓN:
-"Perfecto 😊
-
-Le dejo el formulario para completar la solicitud:
-
+Si dice "quiero apuntarme", "formulario", "reservar" o "inscripción":
+Manda el formulario:
 ${PREPRETEMPORADA_FORM}
 
-Cuando lo envíe, le aparecerá un enlace para avisarnos por WhatsApp y así lo tenemos controlado."
+Y añade:
+"Cuando lo complete, nos llega la solicitud y podemos revisarla."
+
+PRECIOS:
+No inventes precios.
+Si no está confirmado, di que depende del formato o que lo consulta.
+Si preguntan por Training, no des precio cerrado.
+Si preguntan por Experience, depende del clinic.
+Si preguntan por International, depende del programa.
 
 DESCUENTOS:
 No hay descuentos generales.
-Si insisten, responde:
+Si insiste:
 "Lo consulto con dirección y le digo algo en cuanto pueda."
 Añade [[AVISAR_CEO]].
 
+FORMULARIOS:
+No pidas 7 datos seguidos.
+Primero habla normal.
+Si procede, pide solo un dato:
+"¿Me dice el nombre del jugador?"
+o
+"¿Qué edad tiene?"
+o
+"¿En qué club juega ahora?"
+Solo manda formulario cuando haya intención clara.
+
 ESCALADO:
-Añade [[AVISAR_CEO]] si:
-queja, reclamación, descuento, dirección, Manuel, Iván, otra persona, cliente molesto, cliente insistente, audio o situación compleja.
+Añade [[AVISAR_CEO]] si hay:
+queja, reclamación, descuento, dirección, Manuel, Iván, otra persona, cliente molesto, cliente insistente, audio, situación compleja o algo que no puedas resolver con seguridad.
+
+INGLÉS:
+Si escribe en inglés, responde en inglés natural.
 
 ANTES DE RESPONDER:
 Pregúntate:
 ¿Esto lo escribiría una recepcionista real por WhatsApp?
-Si parece un folleto, acórtalo.
-Si parece una conversación, envíalo.
+Si parece folleto, acórtalo.
+Si parece robot, hazlo más humano.
+Si parece interrogatorio, pide solo una cosa.
 
 CONTEXTO:
 Fuera de horario: ${outOfHours ? 'SÍ' : 'NO'}
@@ -394,14 +433,14 @@ Inglés detectado: ${english ? 'SÍ' : 'NO'}
 `;
 
   const completion = await safeOpenAIRequest({
-    model: 'gpt-4o-mini',
+    model: 'gpt-4o',
     messages: [
       { role: 'system', content: systemPrompt },
       ...history,
       { role: 'user', content: text }
     ],
-    temperature: 0.95,
-    max_tokens: 240
+    temperature: 0.85,
+    max_tokens: 260
   });
 
   let response = completion?.choices?.[0]?.message?.content || '';
@@ -507,10 +546,12 @@ client.on('message', async (message) => {
 
     if (CEO_NUMBERS.includes(from) && cleanText.startsWith('/activar')) {
       const targetChatId = normalizePhone(text);
+
       if (!targetChatId) {
         await sendDanielaMessage(from, 'Envíe el comando así: /activar 614806029');
         return;
       }
+
       activateChat(targetChatId);
       await sendDanielaMessage(from, `Daniela reactivada para el chat ${targetChatId.replace('@c.us', '')}.`);
       return;
@@ -518,10 +559,12 @@ client.on('message', async (message) => {
 
     if (CEO_NUMBERS.includes(from) && cleanText.startsWith('/pausar')) {
       const targetChatId = normalizePhone(text);
+
       if (!targetChatId) {
         await sendDanielaMessage(from, 'Envíe el comando así: /pausar 614806029');
         return;
       }
+
       pauseChat(targetChatId, 2);
       await sendDanielaMessage(from, `Daniela pausada durante 2 horas para el chat ${targetChatId.replace('@c.us', '')}.`);
       return;
