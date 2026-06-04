@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const express = require('express');
@@ -5,6 +7,47 @@ const OpenAI = require('openai');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+const AUTH_PATH = '/app/.wwebjs_auth';
+
+function cleanChromiumLocks(dir) {
+  if (!fs.existsSync(dir)) return;
+
+  const lockFiles = [
+    'SingletonLock',
+    'SingletonSocket',
+    'SingletonCookie'
+  ];
+
+  function scan(currentPath) {
+    let items = [];
+
+    try {
+      items = fs.readdirSync(currentPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const item of items) {
+      const fullPath = path.join(currentPath, item.name);
+
+      if (item.isDirectory()) {
+        scan(fullPath);
+      } else if (lockFiles.includes(item.name)) {
+        try {
+          fs.rmSync(fullPath, { force: true });
+          console.log(`Lock Chromium eliminado: ${fullPath}`);
+        } catch (error) {
+          console.error(`No se pudo eliminar lock: ${fullPath}`, error.message);
+        }
+      }
+    }
+  }
+
+  scan(dir);
+}
+
+cleanChromiumLocks(AUTH_PATH);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -29,16 +72,24 @@ const PREPRETEMPORADA_FORM = 'https://tally.so/r/XxG5eO';
 const client = new Client({
   authStrategy: new LocalAuth({
     clientId: 'specialone-clean-1',
-    dataPath: '/app/.wwebjs_auth'
+    dataPath: AUTH_PATH
   }),
   puppeteer: {
     headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+    protocolTimeout: 120000,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--disable-extensions'
+      '--disable-extensions',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-background-networking',
+      '--disable-sync',
+      '--disable-features=site-per-process',
+      '--disable-web-security'
     ]
   }
 });
@@ -644,4 +695,7 @@ app.listen(PORT, () => {
   console.log('Servidor web activo en puerto', PORT);
 });
 
-client.initialize();
+client.initialize().catch((error) => {
+  whatsappStatus = 'initialize_error';
+  console.error('❌ Error inicializando WhatsApp:', error);
+});
