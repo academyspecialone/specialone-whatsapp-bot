@@ -23,6 +23,7 @@ const CEO_NUMBERS = [
 
 const TRAINING_FORM = 'https://tally.so/r/NpMjqB';
 const INTERNATIONAL_FORM = 'https://tally.so/r/pbREOV';
+const PREPRETEMPORADA_FORM = 'https://tally.so/r/XxG5eO';
 
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -48,6 +49,33 @@ function humanDelay(text) {
   return min + extra + Math.floor(Math.random() * 1800);
 }
 
+function normalizeText(text) {
+  return (text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function normalizePhone(raw) {
+  if (!raw) return null;
+
+  let digits = raw.replace(/\D/g, '');
+
+  if (digits.startsWith('00')) {
+    digits = digits.slice(2);
+  }
+
+  if (digits.startsWith('34') && digits.length === 11) {
+    return `${digits}@c.us`;
+  }
+
+  if (digits.length === 9) {
+    return `34${digits}@c.us`;
+  }
+
+  return null;
+}
+
 function markBotMessage(chatId) {
   botSentMessages.set(chatId, Date.now());
 }
@@ -56,6 +84,27 @@ function wasRecentlySentByBot(chatId) {
   const last = botSentMessages.get(chatId);
   if (!last) return false;
   return Date.now() - last < 30000;
+}
+
+function pauseChat(chatId, hours = 2) {
+  pausedChats.set(chatId, Date.now() + hours * 60 * 60 * 1000);
+}
+
+function activateChat(chatId) {
+  pausedChats.delete(chatId);
+}
+
+function isPaused(chatId) {
+  const until = pausedChats.get(chatId);
+
+  if (!until) return false;
+
+  if (Date.now() > until) {
+    pausedChats.delete(chatId);
+    return false;
+  }
+
+  return true;
 }
 
 function isEnglish(text) {
@@ -77,49 +126,77 @@ function isOutOfHours() {
   return hour >= 22 || hour < 9;
 }
 
-function pauseChat(chatId, hours = 2) {
-  pausedChats.set(chatId, Date.now() + hours * 60 * 60 * 1000);
-}
-
-function isPaused(chatId) {
-  const until = pausedChats.get(chatId);
-
-  if (!until) return false;
-
-  if (Date.now() > until) {
-    pausedChats.delete(chatId);
-    return false;
-  }
-
-  return true;
-}
-
 function shouldAlertCEO(text) {
-  const t = (text || '').toLowerCase();
+  const t = normalizeText(text);
 
   return (
     t.includes('descuento') ||
     t.includes('rebaja') ||
     t.includes('queja') ||
-    t.includes('reclamación') ||
+    t.includes('reclamacion') ||
     t.includes('reclamar') ||
     t.includes('jefe') ||
     t.includes('director') ||
-    t.includes('dirección') ||
+    t.includes('direccion') ||
     t.includes('ceo') ||
     t.includes('fuera de plazo') ||
     t.includes('urgente') ||
     t.includes('problema') ||
     t.includes('molesto') ||
     t.includes('enfadado') ||
-    t.includes('devolución') ||
+    t.includes('devolucion') ||
     t.includes('devolver') ||
     t.includes('dinero') ||
     t.includes('hablar con manuel') ||
     t.includes('hablar con ivan') ||
-    t.includes('hablar con iván') ||
     t.includes('audio') ||
     t.includes('nota de voz')
+  );
+}
+
+function isPrePretemporadaIntent(text) {
+  const t = normalizeText(text);
+
+  return (
+    t.includes('pretemporada') ||
+    t.includes('pre pretemporada') ||
+    t.includes('julio') ||
+    t.includes('verano') ||
+    t.includes('entrenamiento verano') ||
+    t.includes('entrenamientos verano') ||
+    t.includes('entrenamiento en julio') ||
+    t.includes('entrenamientos en julio') ||
+    t.includes('proximo clinic') ||
+    t.includes('proximos clinic') ||
+    t.includes('proximos clinics') ||
+    t.includes('tecnificaciones pendientes') ||
+    t.includes('teneis tecnificacion') ||
+    t.includes('teneis algo en verano')
+  );
+}
+
+function isGenericSignupIntent(text) {
+  const t = normalizeText(text);
+
+  return (
+    t.includes('apuntar a mi hijo') ||
+    t.includes('inscribir a mi hijo') ||
+    t.includes('apuntar mi hijo') ||
+    t.includes('inscribir mi hijo') ||
+    t.includes('quiero apuntarlo') ||
+    t.includes('puedo apuntar') ||
+    t.includes('hay plazas') ||
+    t.includes('informacion para mi hijo')
+  );
+}
+
+function isPrePretemporadaFormConfirmation(text) {
+  const t = normalizeText(text);
+
+  return (
+    t.includes('acabo de completar el formulario de inscripcion de la pre pretemporada special one 2026') ||
+    t.includes('acabo de completar el formulario de la pre pretemporada special one 2026') ||
+    t.includes('quedo pendiente de la confirmacion de mi solicitud')
   );
 }
 
@@ -129,6 +206,8 @@ async function sendDanielaMessage(chatId, text) {
 }
 
 async function alertCEOs({ from, userMessage, reason, aiResponse }) {
+  const cleanPhone = from.replace('@c.us', '');
+
   const alertText =
 `🚨 DANIELA - AVISO A DIRECCIÓN
 
@@ -142,7 +221,14 @@ Mensaje recibido:
 Respuesta de Daniela:
 "${aiResponse || 'Pendiente'}"
 
-El chat queda pausado durante 2 horas para que podáis intervenir si lo veis necesario.`;
+El chat queda pausado durante 2 horas.
+
+Para reactivar Daniela en este chat:
+Enviar desde este WhatsApp de empresa en el chat del cliente:
+/activar
+
+O enviar desde vuestro móvil personal al WhatsApp de empresa:
+/activar ${cleanPhone}`;
 
   for (const ceo of CEO_NUMBERS) {
     try {
@@ -184,7 +270,6 @@ PERSONALIDAD:
 - No uses listas salvo que sea necesario.
 - No abuses de emojis. Solo 😊 o ⚽ cuando tenga sentido.
 - No empieces repitiendo lo que el cliente acaba de decir.
-- Evita frases tipo "Entiendo que..." salvo que sea natural.
 - Siempre debes avanzar la conversación con una pregunta útil.
 
 SALUDO:
@@ -220,26 +305,49 @@ Trabajo técnico, táctico, físico y mental.
 Formulario: ${TRAINING_FORM}
 
 2. Special One Experience:
-Clinics de Navidad, Semana Santa y verano.
-No tiene formulario permanente.
-Solo hay formulario cuando hay clinic activo.
-Nunca inventes precios.
+Clinics de Navidad, Semana Santa, verano y eventos especiales.
+No tiene formulario permanente salvo cuando hay evento activo.
 
 3. Special One International Experience:
 Programa internacional para jugadores extranjeros.
 Formulario: ${INTERNATIONAL_FORM}
 
+4. Pre Pretemporada Special One 2026:
+Evento especial dentro de Special One Experience.
+Fechas: del 29 de junio al 31 de julio.
+Actividad principal actual de la academia.
+Diseñada para jugadores que quieren mantener ritmo competitivo en verano y llegar mejor preparados a la temporada.
+Formulario: ${PREPRETEMPORADA_FORM}
+
+Precios:
+- Pack 5 sesiones: 99€
+- Pack 10 sesiones: 179€
+- Promoción hasta el 21 de junio: Pack 10 sesiones por 169€ + camiseta oficial incluida.
+- Camiseta oficial: 15€
+- Equipación completa camiseta + calzona: 20€
+- Los jugadores que ya tengan equipación oficial Special One pueden usar la que ya tienen.
+
+HORARIOS PRE PRETEMPORADA:
+Los grupos se organizarán según demanda.
+Mañanas: lunes, martes, miércoles, jueves y viernes de 09:00 a 11:00.
+Tardes: lunes, miércoles y jueves de 20:00 a 22:00.
+No hay martes tarde ni viernes tarde.
+
+REGLA COMERCIAL ACTUAL:
+Hasta final de julio, si preguntan de forma general por apuntarse, entrenar, verano, julio, próximos clinics o tecnificación pendiente, debes orientar primero hacia la Pre Pretemporada Special One 2026.
+
 PRECIOS:
-Nunca inventes precios.
-Training depende de días y formato.
-Experience depende de cada clinic.
-International depende del programa.
-Si piden precio, recoge primero información básica y orienta sin inventar.
+Nunca inventes precios fuera de los indicados.
+Si preguntan por Training, indica que depende de días y formato.
+Si preguntan por Experience fuera de Pre Pretemporada, depende de cada clinic.
+Si preguntan por International, depende del programa.
 
 FORMULARIOS:
 No hagas interrogatorios largos.
-Primero pregunta el nombre del jugador.
-Después, si procede, envía formulario.
+Primero pregunta lo mínimo necesario.
+Si es Pre Pretemporada, puedes enviar directamente ${PREPRETEMPORADA_FORM}.
+Si es Training, envía ${TRAINING_FORM}.
+Si es International, envía ${INTERNATIONAL_FORM}.
 
 DESCUENTOS:
 No hay descuentos generales.
@@ -258,7 +366,6 @@ Añade exactamente [[AVISAR_CEO]] si:
 - Hay una situación compleja.
 - No sabes responder con seguridad.
 - Cliente está molesto o insistente.
-- Preguntan precios, plazas u horarios exactos no confirmados.
 - Hay audio o nota de voz.
 
 IDIOMA:
@@ -320,14 +427,14 @@ client.on('message_create', async (message) => {
     if (CEO_NUMBERS.includes(chatId)) return;
 
     if (body === '/activar') {
-      pausedChats.delete(chatId);
-      console.log(`Chat reactivado manualmente: ${chatId}`);
+      activateChat(chatId);
+      console.log(`Chat reactivado manualmente desde empresa: ${chatId}`);
       return;
     }
 
     if (body.startsWith('/pausar')) {
       pauseChat(chatId, 2);
-      console.log(`Chat pausado manualmente: ${chatId}`);
+      console.log(`Chat pausado manualmente desde empresa: ${chatId}`);
       return;
     }
 
@@ -346,9 +453,40 @@ client.on('message_create', async (message) => {
 client.on('message', async (message) => {
   try {
     const from = message.from;
+    const text = (message.body || '').trim();
+    const cleanText = normalizeText(text);
 
     if (!from) return;
     if (message.fromMe) return;
+
+    if (CEO_NUMBERS.includes(from) && cleanText.startsWith('/activar')) {
+      const targetChatId = normalizePhone(text);
+
+      if (!targetChatId) {
+        await sendDanielaMessage(from, 'No he podido identificar el teléfono. Envíe el comando así: /activar 614806029');
+        return;
+      }
+
+      activateChat(targetChatId);
+      await sendDanielaMessage(from, `Daniela reactivada para el chat ${targetChatId.replace('@c.us', '')}.`);
+      console.log(`Chat reactivado por CEO: ${targetChatId}`);
+      return;
+    }
+
+    if (CEO_NUMBERS.includes(from) && cleanText.startsWith('/pausar')) {
+      const targetChatId = normalizePhone(text);
+
+      if (!targetChatId) {
+        await sendDanielaMessage(from, 'No he podido identificar el teléfono. Envíe el comando así: /pausar 614806029');
+        return;
+      }
+
+      pauseChat(targetChatId, 2);
+      await sendDanielaMessage(from, `Daniela pausada durante 2 horas para el chat ${targetChatId.replace('@c.us', '')}.`);
+      console.log(`Chat pausado por CEO: ${targetChatId}`);
+      return;
+    }
+
     if (isPaused(from)) return;
 
     if (message.hasMedia || message.type === 'ptt' || message.type === 'audio') {
@@ -367,8 +505,40 @@ client.on('message', async (message) => {
       return;
     }
 
-    const text = (message.body || '').trim();
     if (!text) return;
+
+    if (isPrePretemporadaFormConfirmation(text)) {
+      const reply =
+`Perfecto 😊
+
+Hemos recibido correctamente su solicitud para la Pre Pretemporada Special One 2026.
+
+Durante los próximos días terminaremos de organizar los grupos y nos pondremos en contacto con usted para informarle de los siguientes pasos.
+
+Muchas gracias por confiar en Special One Academy ⚽`;
+
+      await sendDanielaMessage(from, reply);
+      return;
+    }
+
+    if (isPrePretemporadaIntent(text) || isGenericSignupIntent(text)) {
+      const reply =
+`Sí 😊
+
+Ahora mismo tenemos abierta la Pre Pretemporada Special One 2026.
+
+Se desarrollará del 29 de junio al 31 de julio y está pensada para jugadores que quieran mantener el ritmo competitivo durante el verano y llegar mejor preparados al inicio de temporada.
+
+Puede consultar toda la información e inscribirse aquí:
+
+${PREPRETEMPORADA_FORM}
+
+¿Para qué categoría sería el jugador?`;
+
+      await sleep(humanDelay(reply));
+      await sendDanielaMessage(from, reply);
+      return;
+    }
 
     const chat = await message.getChat();
 
