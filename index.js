@@ -15,8 +15,6 @@ let qrImage = '';
 const conversations = new Map();
 const pausedChats = new Map();
 
-const PAUSE_MS = 2 * 60 * 60 * 1000;
-
 const CEO_NUMBERS = [
   '34637993550@c.us',
   '34644287792@c.us'
@@ -26,10 +24,16 @@ const TRAINING_FORM = 'https://tally.so/r/NpMjqB';
 const INTERNATIONAL_FORM = 'https://tally.so/r/pbREOV';
 
 const client = new Client({
-  authStrategy: new LocalAuth({ clientId: 'specialone' }),
+  authStrategy: new LocalAuth({
+    clientId: 'specialone-clean-1'
+  }),
   puppeteer: {
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage'
+    ]
   }
 });
 
@@ -151,14 +155,7 @@ No mantengas conversación larga fuera de horario en español.
 CONTROL DE CONVERSACIÓN:
 Daniela siempre debe llevar el mando.
 Después de responder, debe hacer UNA pregunta útil para avanzar.
-Ejemplos:
-- "¿Me dice el nombre del jugador y la edad, por favor?"
-- "¿Busca tecnificación durante la temporada o un clinic concreto?"
-- "¿El jugador está actualmente en algún club?"
-- "¿Me indica desde qué localidad nos escribe?"
-
-NO hagas interrogatorios largos.
-Pide datos poco a poco.
+No hagas interrogatorios largos. Pide datos poco a poco.
 
 INFORMACIÓN REAL:
 Special One Academy es una academia de tecnificación y formación futbolística en Sevilla.
@@ -186,29 +183,16 @@ PRECIOS:
 - No inventes precios.
 - Special One Training depende de días, formato y necesidades.
 - Special One Experience puede tener precio cerrado cuando se abra cada clinic.
-- Si preguntan por precio, responde con naturalidad y conduce a recoger datos:
-"Depende un poco del formato y del programa, para no darle una información incompleta. Si me dice edad del jugador y qué tipo de experiencia busca, le oriento mejor."
-- Si insisten mucho en descuento:
-"Lo consulto con dirección y le digo algo en cuanto pueda."
+- Si preguntan por precio, responde con naturalidad y conduce a recoger datos.
+- Si insisten mucho en descuento: "Lo consulto con dirección y le digo algo en cuanto pueda."
 
 FORMULARIOS:
 No pidas una lista larga de datos si puedes enviar formulario.
-Primero pregunta el nombre de la persona:
-"Perfecto 😊 Antes de pasarle el formulario, ¿me dice su nombre para dirigirme a usted correctamente?"
+Primero pregunta el nombre de la persona.
 Luego, según interés:
 - Training: envía ${TRAINING_FORM}
 - International: envía ${INTERNATIONAL_FORM}
 - Experience/clinics: si no hay clinic activo, no envíes formulario. Recoge interés.
-
-DATOS A RECOGER POCO A POCO:
-- Nombre del padre/madre o persona que escribe.
-- Nombre del jugador/a.
-- Edad y categoría.
-- Club actual.
-- Ciudad/localidad.
-- Programa de interés.
-- Objetivo del jugador/a.
-- Teléfono si procede.
 
 ESCALADO A DIRECCIÓN:
 Debes avisar a dirección si:
@@ -233,15 +217,13 @@ Fuera de horario: ${outOfHours ? 'SÍ' : 'NO'}
 Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
 `;
 
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    ...history,
-    { role: 'user', content: text }
-  ];
-
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
-    messages,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...history,
+      { role: 'user', content: text }
+    ],
     temperature: 0.72,
     max_tokens: 420
   });
@@ -251,13 +233,11 @@ Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
 
   response = response.replace('[[AVISAR_CEO]]', '').trim();
 
-  const newHistory = [
+  conversations.set(from, [
     ...history,
     { role: 'user', content: text },
     { role: 'assistant', content: response }
-  ].slice(-14);
-
-  conversations.set(from, newHistory);
+  ].slice(-14));
 
   return { response, escalate };
 }
@@ -297,11 +277,7 @@ client.on('message', async (message) => {
   try {
     const from = message.from;
 
-    if (isPaused(from)) {
-      console.log(`Daniela pausada para ${from}`);
-      return;
-    }
-
+    if (isPaused(from)) return;
     if (message.fromMe) return;
 
     if (message.hasMedia || message.type === 'ptt' || message.type === 'audio') {
@@ -329,9 +305,7 @@ client.on('message', async (message) => {
     const { response, escalate } = await getDanielaResponse(from, text);
 
     await sleep(humanDelay(response));
-
     await client.sendMessage(from, response);
-
     await chat.clearState();
 
     if (escalate) {
