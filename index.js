@@ -7,21 +7,14 @@ const OpenAI = require('openai');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-
 const AUTH_PATH = '/app/.wwebjs_auth';
 
 function cleanChromiumLocks(dir) {
   if (!fs.existsSync(dir)) return;
-
-  const lockFiles = [
-    'SingletonLock',
-    'SingletonSocket',
-    'SingletonCookie'
-  ];
+  const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
 
   function scan(currentPath) {
     let items = [];
-
     try {
       items = fs.readdirSync(currentPath, { withFileTypes: true });
     } catch {
@@ -30,16 +23,12 @@ function cleanChromiumLocks(dir) {
 
     for (const item of items) {
       const fullPath = path.join(currentPath, item.name);
-
-      if (item.isDirectory()) {
-        scan(fullPath);
-      } else if (lockFiles.includes(item.name)) {
+      if (item.isDirectory()) scan(fullPath);
+      else if (lockFiles.includes(item.name)) {
         try {
           fs.rmSync(fullPath, { force: true });
           console.log(`Lock Chromium eliminado: ${fullPath}`);
-        } catch (error) {
-          console.error(`No se pudo eliminar lock: ${fullPath}`, error.message);
-        }
+        } catch {}
       }
     }
   }
@@ -59,6 +48,7 @@ let whatsappStatus = 'starting';
 const conversations = new Map();
 const pausedChats = new Map();
 const botSentMessages = new Map();
+const recentBotBodies = new Map();
 
 const CEO_NUMBERS = [
   '34637993550@c.us',
@@ -87,9 +77,7 @@ const client = new Client({
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-background-networking',
-      '--disable-sync',
-      '--disable-features=site-per-process',
-      '--disable-web-security'
+      '--disable-sync'
     ]
   }
 });
@@ -99,9 +87,7 @@ function sleep(ms) {
 }
 
 function humanDelay(text) {
-  const min = 1800;
-  const extra = Math.min((text || '').length * 25, 7000);
-  return min + extra + Math.floor(Math.random() * 1800);
+  return 1800 + Math.min((text || '').length * 25, 7000) + Math.floor(Math.random() * 1800);
 }
 
 function normalizeText(text) {
@@ -113,23 +99,11 @@ function normalizeText(text) {
 
 function normalizePhone(raw) {
   if (!raw) return null;
-
   let digits = raw.replace(/\D/g, '');
-
   if (digits.startsWith('00')) digits = digits.slice(2);
   if (digits.startsWith('34') && digits.length === 11) return `${digits}@c.us`;
   if (digits.length === 9) return `34${digits}@c.us`;
-
   return null;
-}
-
-function markBotMessage(chatId) {
-  botSentMessages.set(chatId, Date.now());
-}
-
-function wasRecentlySentByBot(chatId) {
-  const last = botSentMessages.get(chatId);
-  return last && Date.now() - last < 30000;
 }
 
 function pauseChat(chatId, hours = 2) {
@@ -142,15 +116,37 @@ function activateChat(chatId) {
 
 function isPaused(chatId) {
   const until = pausedChats.get(chatId);
-
   if (!until) return false;
-
   if (Date.now() > until) {
     pausedChats.delete(chatId);
     return false;
   }
-
   return true;
+}
+
+function markBotMessage(chatId, body) {
+  botSentMessages.set(chatId, Date.now());
+
+  if (body) {
+    const key = normalizeText(body).slice(0, 180);
+    recentBotBodies.set(key, Date.now());
+  }
+}
+
+function wasRecentlySentByBot(chatId, body) {
+  const last = botSentMessages.get(chatId);
+  if (last && Date.now() - last < 45000) return true;
+
+  const key = normalizeText(body).slice(0, 180);
+  const bodyTime = recentBotBodies.get(key);
+  if (bodyTime && Date.now() - bodyTime < 45000) return true;
+
+  return false;
+}
+
+async function sendDanielaMessage(chatId, text) {
+  markBotMessage(chatId, text);
+  await client.sendMessage(chatId, text);
 }
 
 function isEnglish(text) {
@@ -246,11 +242,6 @@ function isPrePretemporadaFormConfirmation(text) {
   );
 }
 
-async function sendDanielaMessage(chatId, text) {
-  markBotMessage(chatId);
-  await client.sendMessage(chatId, text);
-}
-
 async function alertCEOs({ from, userMessage, reason, aiResponse }) {
   const cleanPhone = from.replace('@c.us', '');
 
@@ -278,9 +269,9 @@ Desde vuestro móvil personal al WhatsApp de empresa:
 
   for (const ceo of CEO_NUMBERS) {
     try {
-      await client.sendMessage(ceo, alertText);
+      await sendDanielaMessage(ceo, alertText);
     } catch (error) {
-      console.error(`Error avisando a CEO ${ceo}:`, error);
+      console.error(`Error avisando a CEO ${ceo}:`, error.message);
     }
   }
 }
@@ -302,21 +293,10 @@ async function getDanielaResponse(from, text) {
   const systemPrompt = `
 Eres Daniela, recepcionista humana de Special One Academy.
 
-No eres un bot comercial.
-No pareces ChatGPT.
-No dices que eres inteligencia artificial.
-Trabajas en la academia y atiendes WhatsApp como una persona real.
-
-PERSONALIDAD:
-- Cercana, humana, tranquila, educada y profesional.
-- Hablas de usted.
-- Natural, sin sonar perfecta.
-- Frases cortas.
-- No uses respuestas largas.
-- No uses listas salvo que sea necesario.
-- No abuses de emojis. Solo 😊 o ⚽ cuando tenga sentido.
-- No empieces repitiendo lo que el cliente acaba de decir.
-- Siempre debes avanzar la conversación con una pregunta útil.
+Hablas de usted. Eres cercana, humana, tranquila y profesional.
+No pareces ChatGPT. No dices que eres inteligencia artificial.
+Frases cortas. No uses respuestas largas. No repitas continuamente el mensaje del cliente.
+Siempre avanza la conversación con una pregunta útil.
 
 SALUDO:
 Si es primer contacto o saludo inicial, responde solo:
@@ -325,90 +305,44 @@ Si es primer contacto o saludo inicial, responde solo:
 ¿En qué puedo ayudarle?"
 
 HORARIO:
-- Horario humano: 09:00 a 22:00.
-- Fuera de horario, en español, responde breve:
-"Ahora mismo estamos fuera de horario 😊
+Horario humano: 09:00 a 22:00.
+Fuera de horario responde breve y no mantengas conversaciones largas.
 
-Dejo su consulta anotada para revisarla en cuanto volvamos.
-
-Si me indica brevemente qué necesita intentaré orientarle."
-- Fuera de horario no mantengas conversaciones largas.
-- Si escriben en inglés, atiende en inglés.
-
-INFORMACIÓN REAL:
+INFORMACIÓN:
 Special One Academy es una academia de tecnificación y formación futbolística.
-Ubicación: Club Río Grande, Ctra. San Juan Palomares, 9, 41927 Mairena del Aljarafe, Sevilla.
+Ubicación: Club Río Grande, Mairena del Aljarafe, Sevilla.
 Teléfono: +34 614 80 60 29.
 Email: academyspecialone@gmail.com.
 Instagram y TikTok: @specialoneacademy_.
-Categorías: desde prebenjamín hasta juvenil.
 
 PROGRAMAS:
 1. Special One Training:
-Tecnificación semanal durante la temporada.
-Grupos reducidos.
-Trabajo técnico, táctico, físico y mental.
-Formulario: ${TRAINING_FORM}
+Tecnificación semanal. Formulario: ${TRAINING_FORM}
 
 2. Special One Experience:
 Clinics de Navidad, Semana Santa, verano y eventos especiales.
-No tiene formulario permanente salvo cuando hay evento activo.
 
 3. Special One International Experience:
-Programa internacional para jugadores extranjeros.
 Formulario: ${INTERNATIONAL_FORM}
 
 4. Pre Pretemporada Special One 2026:
 Evento especial dentro de Special One Experience.
 Fechas: del 29 de junio al 31 de julio.
-Actividad principal actual de la academia.
 Formulario: ${PREPRETEMPORADA_FORM}
+Pack 5 sesiones: 99€
+Pack 10 sesiones: 179€
+Promoción hasta el 21 de junio: Pack 10 sesiones por 169€ + camiseta oficial incluida.
+Camiseta oficial: 15€
+Equipación completa: 20€
+Mañanas: lunes a viernes de 09:00 a 11:00.
+Tardes: lunes, miércoles y jueves de 20:00 a 22:00.
+No hay martes tarde ni viernes tarde.
 
-Precios:
-- Pack 5 sesiones: 99€
-- Pack 10 sesiones: 179€
-- Promoción hasta el 21 de junio: Pack 10 sesiones por 169€ + camiseta oficial incluida.
-- Camiseta oficial: 15€
-- Equipación completa camiseta + calzona: 20€.
+REGLA ACTUAL:
+Hasta final de julio, si preguntan por apuntarse, entrenar, verano, julio, próximos clinics o tecnificación pendiente, orienta primero hacia la Pre Pretemporada.
 
-Horarios previstos:
-- Mañanas: lunes, martes, miércoles, jueves y viernes de 09:00 a 11:00.
-- Tardes: lunes, miércoles y jueves de 20:00 a 22:00.
-- No hay martes tarde ni viernes tarde.
-
-REGLA COMERCIAL ACTUAL:
-Hasta final de julio, si preguntan de forma general por apuntarse, entrenar, verano, julio, próximos clinics o tecnificación pendiente, debes orientar primero hacia la Pre Pretemporada Special One 2026.
-
-PRECIOS:
-Nunca inventes precios fuera de los indicados.
-
-FORMULARIOS:
-No hagas interrogatorios largos.
-Si es Pre Pretemporada, puedes enviar directamente ${PREPRETEMPORADA_FORM}.
-Si es Training, envía ${TRAINING_FORM}.
-Si es International, envía ${INTERNATIONAL_FORM}.
-
-DESCUENTOS:
-No hay descuentos generales.
-Si insisten, responde:
-"Lo consulto con dirección y le digo algo en cuanto pueda."
-Y añade [[AVISAR_CEO]].
-
-ESCALADO:
-Añade exactamente [[AVISAR_CEO]] si:
-- Hay queja.
-- Hay reclamación.
-- Piden descuento.
-- Solicitan hablar con dirección.
-- Piden hablar con Manuel o Iván.
-- Hay inscripción fuera de plazo.
-- Hay una situación compleja.
-- No sabes responder con seguridad.
-- Cliente está molesto o insistente.
-- Hay audio o nota de voz.
-
-IDIOMA:
-Si escriben en inglés, responde completamente en inglés.
+Nunca inventes precios.
+Si piden descuento, queja, dirección, Manuel, Iván o situación compleja, añade [[AVISAR_CEO]].
 
 CONTEXTO:
 Fuera de horario: ${outOfHours ? 'SÍ' : 'NO'}
@@ -433,7 +367,6 @@ Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
   }
 
   const escalate = response.includes('[[AVISAR_CEO]]') || shouldAlertCEO(text);
-
   response = response.replace('[[AVISAR_CEO]]', '').trim();
 
   conversations.set(from, [
@@ -444,10 +377,6 @@ Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
 
   return { response, escalate };
 }
-
-/* ======================
-   EVENTOS WHATSAPP
-====================== */
 
 client.on('qr', async (qr) => {
   whatsappStatus = 'qr_ready';
@@ -469,18 +398,10 @@ client.on('auth_failure', (msg) => {
   console.error('❌ Error de autenticación WhatsApp:', msg);
 });
 
-client.on('ready', async () => {
+client.on('ready', () => {
   whatsappStatus = 'ready';
   qrImage = '';
   console.log('✅ DANIELA SPECIAL ONE ONLINE');
-
-  for (const ceo of CEO_NUMBERS) {
-    try {
-      await client.sendMessage(ceo, '✅ Daniela está online y WhatsApp conectado correctamente.');
-    } catch (error) {
-      console.error('No se pudo avisar a CEO al iniciar:', error.message);
-    }
-  }
 });
 
 client.on('disconnected', (reason) => {
@@ -493,30 +414,39 @@ client.on('message_create', async (message) => {
     if (!message.fromMe) return;
 
     const chatId = message.to || message.from;
-    const body = (message.body || '').trim().toLowerCase();
+    const body = (message.body || '').trim();
 
     if (!chatId) return;
-    if (CEO_NUMBERS.includes(chatId)) return;
 
-    if (body === '/activar') {
+    if (wasRecentlySentByBot(chatId, body)) {
+      console.log(`Mensaje automático ignorado para pausa: ${chatId}`);
+      return;
+    }
+
+    const cleanBody = normalizeText(body);
+
+    if (cleanBody === '/activar') {
       activateChat(chatId);
       console.log(`Chat reactivado manualmente desde empresa: ${chatId}`);
       return;
     }
 
-    if (body.startsWith('/pausar')) {
+    if (cleanBody.startsWith('/pausar')) {
       pauseChat(chatId, 2);
       console.log(`Chat pausado manualmente desde empresa: ${chatId}`);
       return;
     }
 
-    if (wasRecentlySentByBot(chatId)) return;
+    if (CEO_NUMBERS.includes(chatId)) {
+      console.log(`Mensaje hacia CEO ignorado para pausa: ${chatId}`);
+      return;
+    }
 
     pauseChat(chatId, 2);
     console.log(`Chat pausado por intervención humana real desde WhatsApp empresa: ${chatId}`);
 
   } catch (error) {
-    console.error('Error en message_create:', error);
+    console.error('Error en message_create:', error.message);
   }
 });
 
@@ -531,12 +461,10 @@ client.on('message', async (message) => {
 
     if (CEO_NUMBERS.includes(from) && cleanText.startsWith('/activar')) {
       const targetChatId = normalizePhone(text);
-
       if (!targetChatId) {
-        await sendDanielaMessage(from, 'No he podido identificar el teléfono. Envíe el comando así: /activar 614806029');
+        await sendDanielaMessage(from, 'Envíe el comando así: /activar 614806029');
         return;
       }
-
       activateChat(targetChatId);
       await sendDanielaMessage(from, `Daniela reactivada para el chat ${targetChatId.replace('@c.us', '')}.`);
       return;
@@ -544,12 +472,10 @@ client.on('message', async (message) => {
 
     if (CEO_NUMBERS.includes(from) && cleanText.startsWith('/pausar')) {
       const targetChatId = normalizePhone(text);
-
       if (!targetChatId) {
-        await sendDanielaMessage(from, 'No he podido identificar el teléfono. Envíe el comando así: /pausar 614806029');
+        await sendDanielaMessage(from, 'Envíe el comando así: /pausar 614806029');
         return;
       }
-
       pauseChat(targetChatId, 2);
       await sendDanielaMessage(from, `Daniela pausada durante 2 horas para el chat ${targetChatId.replace('@c.us', '')}.`);
       return;
@@ -559,16 +485,13 @@ client.on('message', async (message) => {
 
     if (message.hasMedia || message.type === 'ptt' || message.type === 'audio') {
       const reply = 'Disculpe, ahora mismo no puedo escuchar audios desde aquí. Si le parece, escríbame la consulta por texto y le ayudo encantada 😊';
-
       await sendDanielaMessage(from, reply);
-
       await alertCEOs({
         from,
         userMessage: 'Audio / nota de voz recibida',
         reason: 'Cliente ha enviado un audio',
         aiResponse: reply
       });
-
       pauseChat(from, 2);
       return;
     }
@@ -630,38 +553,16 @@ ${PREPRETEMPORADA_FORM}
         reason: 'Consulta marcada para revisar por dirección',
         aiResponse: response
       });
-
       pauseChat(from, 2);
     }
 
   } catch (error) {
-    console.error('Error Daniela:', error);
-
-    try {
-      const fallback = 'Disculpe, estoy teniendo un pequeño problema ahora mismo. Dejo su mensaje anotado para que el equipo lo revise lo antes posible.';
-
-      await sendDanielaMessage(message.from, fallback);
-
-      await alertCEOs({
-        from: message.from,
-        userMessage: message.body || 'Sin texto',
-        reason: 'Error interno de Daniela',
-        aiResponse: fallback
-      });
-
-      pauseChat(message.from, 2);
-    } catch (fallbackError) {
-      console.error('Error enviando fallback:', fallbackError);
-    }
+    console.error('Error Daniela:', error.message);
   }
 });
 
-/* ======================
-   WEB
-====================== */
-
 app.get('/', (req, res) => {
-  res.send(`Daniela - Special One Academy activa 🚀 | Estado WhatsApp: ${whatsappStatus}`);
+  res.send(`Daniela activa 🚀 | Estado WhatsApp: ${whatsappStatus}`);
 });
 
 app.get('/health', (req, res) => {
