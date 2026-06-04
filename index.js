@@ -11,6 +11,7 @@ const openai = new OpenAI({
 });
 
 let qrImage = '';
+let whatsappStatus = 'starting';
 
 const conversations = new Map();
 const pausedChats = new Map();
@@ -27,15 +28,17 @@ const PREPRETEMPORADA_FORM = 'https://tally.so/r/XxG5eO';
 
 const client = new Client({
   authStrategy: new LocalAuth({
-  clientId: 'specialone-clean-1',
-  dataPath: '/app/.wwebjs_auth'
-}),
+    clientId: 'specialone-clean-1',
+    dataPath: '/app/.wwebjs_auth'
+  }),
   puppeteer: {
     headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage'
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-extensions'
     ]
   }
 });
@@ -62,17 +65,9 @@ function normalizePhone(raw) {
 
   let digits = raw.replace(/\D/g, '');
 
-  if (digits.startsWith('00')) {
-    digits = digits.slice(2);
-  }
-
-  if (digits.startsWith('34') && digits.length === 11) {
-    return `${digits}@c.us`;
-  }
-
-  if (digits.length === 9) {
-    return `34${digits}@c.us`;
-  }
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('34') && digits.length === 11) return `${digits}@c.us`;
+  if (digits.length === 9) return `34${digits}@c.us`;
 
   return null;
 }
@@ -83,8 +78,7 @@ function markBotMessage(chatId) {
 
 function wasRecentlySentByBot(chatId) {
   const last = botSentMessages.get(chatId);
-  if (!last) return false;
-  return Date.now() - last < 30000;
+  return last && Date.now() - last < 30000;
 }
 
 function pauseChat(chatId, hours = 2) {
@@ -225,10 +219,10 @@ Respuesta de Daniela:
 El chat queda pausado durante 2 horas.
 
 Para reactivar Daniela en este chat:
-Enviar desde este WhatsApp de empresa en el chat del cliente:
+Desde el WhatsApp de empresa:
 /activar
 
-O enviar desde vuestro móvil personal al WhatsApp de empresa:
+Desde vuestro móvil personal al WhatsApp de empresa:
 /activar ${cleanPhone}`;
 
   for (const ceo of CEO_NUMBERS) {
@@ -317,7 +311,6 @@ Formulario: ${INTERNATIONAL_FORM}
 Evento especial dentro de Special One Experience.
 Fechas: del 29 de junio al 31 de julio.
 Actividad principal actual de la academia.
-Diseñada para jugadores que quieren mantener ritmo competitivo en verano y llegar mejor preparados a la temporada.
 Formulario: ${PREPRETEMPORADA_FORM}
 
 Precios:
@@ -325,27 +318,21 @@ Precios:
 - Pack 10 sesiones: 179€
 - Promoción hasta el 21 de junio: Pack 10 sesiones por 169€ + camiseta oficial incluida.
 - Camiseta oficial: 15€
-- Equipación completa camiseta + calzona: 20€
-- Los jugadores que ya tengan equipación oficial Special One pueden usar la que ya tienen.
+- Equipación completa camiseta + calzona: 20€.
 
-HORARIOS PRE PRETEMPORADA:
-Los grupos se organizarán según demanda.
-Mañanas: lunes, martes, miércoles, jueves y viernes de 09:00 a 11:00.
-Tardes: lunes, miércoles y jueves de 20:00 a 22:00.
-No hay martes tarde ni viernes tarde.
+Horarios previstos:
+- Mañanas: lunes, martes, miércoles, jueves y viernes de 09:00 a 11:00.
+- Tardes: lunes, miércoles y jueves de 20:00 a 22:00.
+- No hay martes tarde ni viernes tarde.
 
 REGLA COMERCIAL ACTUAL:
 Hasta final de julio, si preguntan de forma general por apuntarse, entrenar, verano, julio, próximos clinics o tecnificación pendiente, debes orientar primero hacia la Pre Pretemporada Special One 2026.
 
 PRECIOS:
 Nunca inventes precios fuera de los indicados.
-Si preguntan por Training, indica que depende de días y formato.
-Si preguntan por Experience fuera de Pre Pretemporada, depende de cada clinic.
-Si preguntan por International, depende del programa.
 
 FORMULARIOS:
 No hagas interrogatorios largos.
-Primero pregunta lo mínimo necesario.
 Si es Pre Pretemporada, puedes enviar directamente ${PREPRETEMPORADA_FORM}.
 Si es Training, envía ${TRAINING_FORM}.
 Si es International, envía ${INTERNATIONAL_FORM}.
@@ -407,13 +394,47 @@ Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
   return { response, escalate };
 }
 
+/* ======================
+   EVENTOS WHATSAPP
+====================== */
+
 client.on('qr', async (qr) => {
+  whatsappStatus = 'qr_ready';
   qrImage = await qrcode.toDataURL(qr);
-  console.log('QR listo en /qr');
+  console.log('📲 QR listo en /qr');
 });
 
-client.on('ready', () => {
+client.on('loading_screen', (percent, message) => {
+  console.log(`⏳ Cargando WhatsApp: ${percent}% - ${message}`);
+});
+
+client.on('authenticated', () => {
+  whatsappStatus = 'authenticated';
+  console.log('🔐 WhatsApp autenticado correctamente');
+});
+
+client.on('auth_failure', (msg) => {
+  whatsappStatus = 'auth_failure';
+  console.error('❌ Error de autenticación WhatsApp:', msg);
+});
+
+client.on('ready', async () => {
+  whatsappStatus = 'ready';
+  qrImage = '';
   console.log('✅ DANIELA SPECIAL ONE ONLINE');
+
+  for (const ceo of CEO_NUMBERS) {
+    try {
+      await client.sendMessage(ceo, '✅ Daniela está online y WhatsApp conectado correctamente.');
+    } catch (error) {
+      console.error('No se pudo avisar a CEO al iniciar:', error.message);
+    }
+  }
+});
+
+client.on('disconnected', (reason) => {
+  whatsappStatus = 'disconnected';
+  console.error('🔌 WhatsApp desconectado:', reason);
 });
 
 client.on('message_create', async (message) => {
@@ -424,7 +445,6 @@ client.on('message_create', async (message) => {
     const body = (message.body || '').trim().toLowerCase();
 
     if (!chatId) return;
-
     if (CEO_NUMBERS.includes(chatId)) return;
 
     if (body === '/activar') {
@@ -439,9 +459,7 @@ client.on('message_create', async (message) => {
       return;
     }
 
-    if (wasRecentlySentByBot(chatId)) {
-      return;
-    }
+    if (wasRecentlySentByBot(chatId)) return;
 
     pauseChat(chatId, 2);
     console.log(`Chat pausado por intervención humana real desde WhatsApp empresa: ${chatId}`);
@@ -470,7 +488,6 @@ client.on('message', async (message) => {
 
       activateChat(targetChatId);
       await sendDanielaMessage(from, `Daniela reactivada para el chat ${targetChatId.replace('@c.us', '')}.`);
-      console.log(`Chat reactivado por CEO: ${targetChatId}`);
       return;
     }
 
@@ -484,7 +501,6 @@ client.on('message', async (message) => {
 
       pauseChat(targetChatId, 2);
       await sendDanielaMessage(from, `Daniela pausada durante 2 horas para el chat ${targetChatId.replace('@c.us', '')}.`);
-      console.log(`Chat pausado por CEO: ${targetChatId}`);
       return;
     }
 
@@ -550,7 +566,6 @@ ${PREPRETEMPORADA_FORM}
     const { response, escalate } = await getDanielaResponse(from, text);
 
     await sleep(humanDelay(response));
-
     await sendDanielaMessage(from, response);
 
     try {
@@ -590,13 +605,27 @@ ${PREPRETEMPORADA_FORM}
   }
 });
 
+/* ======================
+   WEB
+====================== */
+
 app.get('/', (req, res) => {
-  res.send('Daniela - Special One Academy activa 🚀');
+  res.send(`Daniela - Special One Academy activa 🚀 | Estado WhatsApp: ${whatsappStatus}`);
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    whatsapp: whatsappStatus,
+    pausedChats: pausedChats.size,
+    conversations: conversations.size,
+    uptime: process.uptime()
+  });
 });
 
 app.get('/qr', (req, res) => {
   if (!qrImage) {
-    return res.send('QR aún no generado o WhatsApp ya está vinculado.');
+    return res.send(`QR aún no generado o WhatsApp ya está vinculado. Estado actual: ${whatsappStatus}`);
   }
 
   res.send(`
@@ -605,6 +634,7 @@ app.get('/qr', (req, res) => {
         <h1>QR WhatsApp Special One</h1>
         <img src="${qrImage}" width="360"/>
         <p>Escanéalo desde WhatsApp → Dispositivos vinculados</p>
+        <p>Estado actual: ${whatsappStatus}</p>
       </body>
     </html>
   `);
