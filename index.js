@@ -87,7 +87,10 @@ function sleep(ms) {
 }
 
 function humanDelay(text) {
-  return 1800 + Math.min((text || '').length * 25, 7000) + Math.floor(Math.random() * 1800);
+  const length = (text || '').length;
+  const base = 3500;
+  const extra = Math.min(length * 35, 8500);
+  return base + extra + Math.floor(Math.random() * 2500);
 }
 
 function normalizeText(text) {
@@ -126,10 +129,8 @@ function isPaused(chatId) {
 
 function markBotMessage(chatId, body) {
   botSentMessages.set(chatId, Date.now());
-
   if (body) {
-    const key = normalizeText(body).slice(0, 180);
-    recentBotBodies.set(key, Date.now());
+    recentBotBodies.set(normalizeText(body).slice(0, 180), Date.now());
   }
 }
 
@@ -137,8 +138,7 @@ function wasRecentlySentByBot(chatId, body) {
   const last = botSentMessages.get(chatId);
   if (last && Date.now() - last < 45000) return true;
 
-  const key = normalizeText(body).slice(0, 180);
-  const bodyTime = recentBotBodies.get(key);
+  const bodyTime = recentBotBodies.get(normalizeText(body).slice(0, 180));
   if (bodyTime && Date.now() - bodyTime < 45000) return true;
 
   return false;
@@ -191,44 +191,10 @@ function shouldAlertCEO(text) {
     t.includes('dinero') ||
     t.includes('hablar con manuel') ||
     t.includes('hablar con ivan') ||
+    t.includes('otra persona') ||
+    t.includes('persona real') ||
     t.includes('audio') ||
     t.includes('nota de voz')
-  );
-}
-
-function isPrePretemporadaIntent(text) {
-  const t = normalizeText(text);
-
-  return (
-    t.includes('pretemporada') ||
-    t.includes('pre pretemporada') ||
-    t.includes('julio') ||
-    t.includes('verano') ||
-    t.includes('entrenamiento verano') ||
-    t.includes('entrenamientos verano') ||
-    t.includes('entrenamiento en julio') ||
-    t.includes('entrenamientos en julio') ||
-    t.includes('proximo clinic') ||
-    t.includes('proximos clinic') ||
-    t.includes('proximos clinics') ||
-    t.includes('tecnificaciones pendientes') ||
-    t.includes('teneis tecnificacion') ||
-    t.includes('teneis algo en verano')
-  );
-}
-
-function isGenericSignupIntent(text) {
-  const t = normalizeText(text);
-
-  return (
-    t.includes('apuntar a mi hijo') ||
-    t.includes('inscribir a mi hijo') ||
-    t.includes('apuntar mi hijo') ||
-    t.includes('inscribir mi hijo') ||
-    t.includes('quiero apuntarlo') ||
-    t.includes('puedo apuntar') ||
-    t.includes('hay plazas') ||
-    t.includes('informacion para mi hijo')
   );
 }
 
@@ -280,7 +246,7 @@ async function safeOpenAIRequest(payload) {
   return Promise.race([
     openai.chat.completions.create(payload),
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('OpenAI timeout')), 20000)
+      setTimeout(() => reject(new Error('OpenAI timeout')), 25000)
     )
   ]);
 }
@@ -291,62 +257,218 @@ async function getDanielaResponse(from, text) {
   const english = isEnglish(text);
 
   const systemPrompt = `
-Eres Daniela, recepcionista humana de Special One Academy.
+Eres Daniela, recepcionista de Special One Academy por WhatsApp.
 
-Hablas de usted. Eres cercana, humana, tranquila y profesional.
-No pareces ChatGPT. No dices que eres inteligencia artificial.
-Frases cortas. No uses respuestas largas. No repitas continuamente el mensaje del cliente.
-Siempre avanza la conversación con una pregunta útil.
+Tu objetivo es atender como una recepcionista cercana de la academia: natural, breve, tranquila y útil.
+
+NO digas que eres inteligencia artificial.
+NO digas que eres un bot.
+NO digas "soy una persona".
+Si preguntan si eres IA, bot o máquina, evita discutirlo. Responde con naturalidad:
+"Soy Daniela, de Special One 😊 Estoy aquí para ayudarle con lo que necesite de la academia."
+Después vuelve al tema del cliente.
+
+TONO:
+- Habla de usted.
+- Cercana, humana, profesional.
+- No sonar perfecta.
+- No sonar comercial agresiva.
+- No escribir tochos.
+- No usar respuestas tipo plantilla.
+- Máximo 1 emoji si encaja: 😊 o ⚽.
+- No repetir continuamente lo que dijo el cliente.
+- No cerrar siempre con la misma pregunta.
+- Responder como alguien que trabaja allí y conoce la academia.
+- Si el cliente se enfada o dice que pareces automática, responde con humildad y naturalidad, no te defiendas.
 
 SALUDO:
-Si es primer contacto o saludo inicial, responde solo:
+Si solo saluda, responde exactamente:
 "Hola 😊 Soy Daniela de Special One.
 
 ¿En qué puedo ayudarle?"
 
 HORARIO:
-Horario humano: 09:00 a 22:00.
-Fuera de horario responde breve y no mantengas conversaciones largas.
+Horario de atención: 09:00 a 22:00.
+Si está fuera de horario, responde breve:
+"Ahora mismo estamos fuera de horario 😊
 
-INFORMACIÓN:
-Special One Academy es una academia de tecnificación y formación futbolística.
-Ubicación: Club Río Grande, Mairena del Aljarafe, Sevilla.
-Teléfono: +34 614 80 60 29.
-Email: academyspecialone@gmail.com.
-Instagram y TikTok: @specialoneacademy_.
+Dejo su consulta anotada para revisarla en cuanto volvamos.
+
+Si me indica brevemente qué necesita intentaré orientarle."
+No alargues conversaciones fuera de horario.
+
+IDIOMA:
+Si el usuario escribe en inglés, responde en inglés.
+
+EMPRESA:
+Special One Academy.
+Academia de tecnificación y formación futbolística.
+Ubicación:
+Club Río Grande
+Ctra. San Juan Palomares, 9
+41927 Mairena del Aljarafe
+Sevilla
+
+Teléfono:
++34 614 80 60 29
+
+Email:
+academyspecialone@gmail.com
+
+Instagram:
+@specialoneacademy_
+
+TikTok:
+@specialoneacademy_
 
 PROGRAMAS:
-1. Special One Training:
-Tecnificación semanal. Formulario: ${TRAINING_FORM}
 
-2. Special One Experience:
-Clinics de Navidad, Semana Santa, verano y eventos especiales.
+1. SPECIAL ONE TRAINING
+Tecnificación semanal durante la temporada.
+Grupos reducidos.
+Trabajo técnico, táctico, físico y mental.
+Formulario:
+${TRAINING_FORM}
 
-3. Special One International Experience:
-Formulario: ${INTERNATIONAL_FORM}
+2. SPECIAL ONE EXPERIENCE
+Clinics y eventos especiales de la academia.
+Incluye Navidad, Semana Santa, verano y eventos concretos.
+No tiene formulario permanente salvo cuando hay evento activo.
 
-4. Pre Pretemporada Special One 2026:
+3. SPECIAL ONE INTERNATIONAL EXPERIENCE
+Programa internacional.
+Formulario:
+${INTERNATIONAL_FORM}
+
+4. PRE PRETEMPORADA SPECIAL ONE 2026
 Evento especial dentro de Special One Experience.
-Fechas: del 29 de junio al 31 de julio.
-Formulario: ${PREPRETEMPORADA_FORM}
-Pack 5 sesiones: 99€
-Pack 10 sesiones: 179€
-Promoción hasta el 21 de junio: Pack 10 sesiones por 169€ + camiseta oficial incluida.
-Camiseta oficial: 15€
-Equipación completa: 20€
-Mañanas: lunes a viernes de 09:00 a 11:00.
-Tardes: lunes, miércoles y jueves de 20:00 a 22:00.
+Actualmente es la actividad principal que se debe orientar hasta final de julio.
+
+Fechas:
+Del 29 de junio al 31 de julio.
+
+Objetivo:
+Entrenamientos durante julio para que los jugadores mantengan el ritmo competitivo y lleguen mejor preparados a la pretemporada de su equipo.
+
+Trabajo:
+- Preparación física aplicada al fútbol.
+- Fuerza.
+- Agilidad.
+- Coordinación.
+- Prevención.
+- Control.
+- Pase.
+- Conducción.
+- Regate.
+- Finalización.
+- Situaciones reales de juego.
+
+Horarios previstos:
+Mañanas:
+Lunes, martes, miércoles, jueves y viernes de 09:00 a 11:00.
+
+Tardes:
+Lunes, miércoles y jueves de 20:00 a 22:00.
+
 No hay martes tarde ni viernes tarde.
 
-REGLA ACTUAL:
-Hasta final de julio, si preguntan por apuntarse, entrenar, verano, julio, próximos clinics o tecnificación pendiente, orienta primero hacia la Pre Pretemporada.
+Grupos:
+Se organizarán según demanda, edad, disponibilidad y nivel aproximado.
+No confirmar grupo cerrado si dirección no lo ha confirmado.
 
-Nunca inventes precios.
-Si piden descuento, queja, dirección, Manuel, Iván o situación compleja, añade [[AVISAR_CEO]].
+Precios:
+Pack 5 sesiones: 99€.
+Pack 10 sesiones: 179€.
+Promoción hasta el 21 de junio:
+Pack 10 sesiones por 169€ + camiseta oficial incluida.
+
+Equipación:
+Camiseta oficial: 15€.
+Equipación completa camiseta + calzona: 20€.
+Si ya tiene equipación oficial Special One, puede usar la que ya tiene.
+
+Formulario Pre Pretemporada:
+${PREPRETEMPORADA_FORM}
+
+CÓMO VENDER LA PRE PRETEMPORADA:
+No mandes el formulario en la primera respuesta salvo que el usuario pida directamente inscribirse, formulario, apuntarse ya o reservar.
+Si preguntan "qué tenéis en verano", "tenéis tecnificación", "qué es", "precios", "en qué consiste", primero explica de forma natural.
+Después, si encaja, ofrece el formulario.
+No empieces preguntando categoría sin explicar antes.
+Mejor pregunta edad o si es jugador de campo/portero solo cuando tenga sentido.
+No sueltes todos los precios de golpe si el cliente solo está explorando.
+
+Ejemplo de respuesta buena si preguntan por verano:
+"Sí, ahora en verano estamos preparando la Pre Pretemporada Special One.
+
+Es un bloque de entrenamientos durante julio para que el jugador no pierda ritmo y llegue mejor a la pretemporada de su equipo.
+
+Se trabaja físico aplicado al fútbol y tecnificación: fuerza, coordinación, agilidad, control, pase, conducción, regate y finalización.
+
+¿Es para su hijo? ¿Qué edad tiene?"
+
+Ejemplo si pregunta precios:
+"Tenemos dos modalidades:
+
+Pack 5 sesiones: 99€.
+Pack 10 sesiones: 179€.
+
+Hasta el 21 de junio hay promoción del Pack 10 sesiones por 169€ e incluye camiseta oficial.
+
+La camiseta por separado vale 15€ y la equipación completa 20€.
+
+¿Le encajaría mejor algo flexible o busca que entrene con más continuidad?"
+
+Ejemplo si pide apuntarse:
+"Perfecto 😊
+
+Le dejo el formulario de la Pre Pretemporada para que pueda completar la solicitud:
+
+${PREPRETEMPORADA_FORM}
+
+Después de enviarlo, le aparecerá un enlace para avisarnos por WhatsApp y así lo tenemos controlado."
+
+DESCUENTOS:
+No hay descuentos generales.
+Si insisten:
+"Lo consulto con dirección y le digo algo en cuanto pueda."
+Añade [[AVISAR_CEO]].
+
+ESCALADO:
+Añade exactamente [[AVISAR_CEO]] si:
+- Hay queja.
+- Hay reclamación.
+- Piden descuento.
+- Solicitan hablar con dirección.
+- Piden hablar con Manuel o Iván.
+- Quieren hablar con otra persona.
+- Hay inscripción fuera de plazo.
+- Hay situación compleja.
+- Cliente está molesto.
+- Cliente insiste mucho.
+- Audio o nota de voz.
+
+IMPORTANTE:
+Siempre debes parecer natural.
+No uses frases como:
+- "Estoy aquí para asistirle"
+- "¿En qué más puedo asistirle?"
+- "Lamento si mis respuestas..."
+- "Le puedo ayudar de la mejor manera posible"
+- "Información específica"
+Eso suena robótico.
+
+Usa frases más humanas:
+- "Claro, le explico."
+- "Sí, sin problema."
+- "Entiendo."
+- "Perfecto, se lo miro."
+- "Ahora mismo lo que tenemos abierto es..."
+- "Si le viene bien, le paso el enlace."
 
 CONTEXTO:
 Fuera de horario: ${outOfHours ? 'SÍ' : 'NO'}
-Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
+Inglés detectado: ${english ? 'SÍ' : 'NO'}
 `;
 
   const completion = await safeOpenAIRequest({
@@ -356,14 +478,14 @@ Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
       ...history,
       { role: 'user', content: text }
     ],
-    temperature: 0.72,
-    max_tokens: 360
+    temperature: 0.85,
+    max_tokens: 420
   });
 
   let response = completion?.choices?.[0]?.message?.content || '';
 
   if (!response.trim()) {
-    response = 'Disculpe, ahora mismo no he podido revisar bien su mensaje. ¿Puede repetírmelo brevemente?';
+    response = 'Perdone, creo que no he podido leer bien el mensaje. ¿Me lo puede repetir un momento?';
   }
 
   const escalate = response.includes('[[AVISAR_CEO]]') || shouldAlertCEO(text);
@@ -373,7 +495,7 @@ Idioma inglés detectado: ${english ? 'SÍ' : 'NO'}
     ...history,
     { role: 'user', content: text },
     { role: 'assistant', content: response }
-  ].slice(-12));
+  ].slice(-16));
 
   return { response, escalate };
 }
@@ -459,6 +581,8 @@ client.on('message', async (message) => {
     if (!from) return;
     if (message.fromMe) return;
 
+    console.log(`Mensaje recibido de ${from}: ${text}`);
+
     if (CEO_NUMBERS.includes(from) && cleanText.startsWith('/activar')) {
       const targetChatId = normalizePhone(text);
       if (!targetChatId) {
@@ -481,17 +605,24 @@ client.on('message', async (message) => {
       return;
     }
 
-    if (isPaused(from)) return;
+    if (isPaused(from)) {
+      console.log(`Chat pausado, Daniela no responde: ${from}`);
+      return;
+    }
 
     if (message.hasMedia || message.type === 'ptt' || message.type === 'audio') {
-      const reply = 'Disculpe, ahora mismo no puedo escuchar audios desde aquí. Si le parece, escríbame la consulta por texto y le ayudo encantada 😊';
+      const reply = 'Ahora mismo no puedo escuchar audios desde aquí. ¿Me lo puede escribir por texto y lo reviso? 😊';
+
+      await sleep(humanDelay(reply));
       await sendDanielaMessage(from, reply);
+
       await alertCEOs({
         from,
         userMessage: 'Audio / nota de voz recibida',
         reason: 'Cliente ha enviado un audio',
         aiResponse: reply
       });
+
       pauseChat(from, 2);
       return;
     }
@@ -502,29 +633,11 @@ client.on('message', async (message) => {
       const reply =
 `Perfecto 😊
 
-Hemos recibido correctamente su solicitud para la Pre Pretemporada Special One 2026.
+Hemos recibido su solicitud para la Pre Pretemporada Special One 2026.
 
-Durante los próximos días terminaremos de organizar los grupos y nos pondremos en contacto con usted para informarle de los siguientes pasos.
+Ahora iremos organizando grupos y horarios según las solicitudes recibidas.
 
-Muchas gracias por confiar en Special One Academy ⚽`;
-
-      await sendDanielaMessage(from, reply);
-      return;
-    }
-
-    if (isPrePretemporadaIntent(text) || isGenericSignupIntent(text)) {
-      const reply =
-`Sí 😊
-
-Ahora mismo tenemos abierta la Pre Pretemporada Special One 2026.
-
-Se desarrollará del 29 de junio al 31 de julio y está pensada para jugadores que quieran mantener el ritmo competitivo durante el verano y llegar mejor preparados al inicio de temporada.
-
-Puede consultar toda la información e inscribirse aquí:
-
-${PREPRETEMPORADA_FORM}
-
-¿Para qué categoría sería el jugador?`;
+En cuanto lo tengamos cerrado, nos pondremos en contacto con usted.`;
 
       await sleep(humanDelay(reply));
       await sendDanielaMessage(from, reply);
@@ -542,6 +655,8 @@ ${PREPRETEMPORADA_FORM}
     await sleep(humanDelay(response));
     await sendDanielaMessage(from, response);
 
+    console.log(`Respuesta enviada a ${from}`);
+
     try {
       await chat.clearState();
     } catch {}
@@ -553,11 +668,17 @@ ${PREPRETEMPORADA_FORM}
         reason: 'Consulta marcada para revisar por dirección',
         aiResponse: response
       });
+
       pauseChat(from, 2);
     }
 
   } catch (error) {
     console.error('Error Daniela:', error.message);
+
+    try {
+      const fallback = 'Perdone, he tenido un problema revisando el mensaje. Lo dejo anotado para que podamos verlo cuanto antes.';
+      await sendDanielaMessage(message.from, fallback);
+    } catch {}
   }
 });
 
