@@ -636,12 +636,14 @@ Ahora iremos organizando grupos y horarios según las solicitudes recibidas.`;
     }
 
   } catch (error) {
-    console.error('Error Daniela completo:', error);
+    console.error('Error Daniela completo:', error?.stack || error?.message || error);
 
     try {
-      const fallback = 'Perdone, he tenido un problema revisando el mensaje. Lo dejo anotado para que podamos verlo cuanto antes.';
+      const fallback = 'Buenas 😊 Soy Daniela de Special One Academy.\n\nAhora mismo puedo ayudarle con información sobre entrenamientos, horarios, ubicación o inscripciones.\n\n¿Me dice qué necesita?';
       await sendDanielaMessage(message.from, fallback);
-    } catch {}
+    } catch (sendError) {
+      console.error('Error enviando fallback Daniela:', sendError?.stack || sendError?.message || sendError);
+    }
   }
 });
 
