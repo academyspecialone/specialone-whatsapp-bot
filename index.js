@@ -636,7 +636,7 @@ Ahora iremos organizando grupos y horarios según las solicitudes recibidas.`;
     }
 
   } catch (error) {
-    console.error('Error Daniela:', error);
+    console.error('Error Daniela completo:', error);
 
     try {
       const fallback = 'Perdone, he tenido un problema revisando el mensaje. Lo dejo anotado para que podamos verlo cuanto antes.';
