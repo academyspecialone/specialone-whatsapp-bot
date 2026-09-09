@@ -433,7 +433,7 @@ Inglés detectado: ${english ? 'SÍ' : 'NO'}
 `;
 
   const completion = await safeOpenAIRequest({
-    model: 'gpt-4o',
+    model: 'gpt-4o-mini',
     messages: [
       { role: 'system', content: systemPrompt },
       ...history,
