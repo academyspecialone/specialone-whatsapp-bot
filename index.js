@@ -7,39 +7,8 @@ const OpenAI = require('openai');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-const AUTH_PATH = '/app/.wwebjs_auth';
-
-function cleanChromiumLocks(dir) {
-  if (!fs.existsSync(dir)) return;
-
-  const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
-
-  function scan(currentPath) {
-    let items = [];
-    try {
-      items = fs.readdirSync(currentPath, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const item of items) {
-      const fullPath = path.join(currentPath, item.name);
-
-      if (item.isDirectory()) {
-        scan(fullPath);
-      } else if (lockFiles.includes(item.name)) {
-        try {
-          fs.rmSync(fullPath, { force: true });
-          console.log(`Lock Chromium eliminado: ${fullPath}`);
-        } catch {}
-      }
-    }
-  }
-
-  scan(dir);
-}
-
-cleanChromiumLocks(AUTH_PATH);
+const AUTH_PATH = process.env.WHATSAPP_AUTH_PATH || '/app/.wwebjs_auth';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -60,7 +29,37 @@ const CEO_NUMBERS = [
 
 const TRAINING_FORM = 'https://tally.so/r/NpMjqB';
 const INTERNATIONAL_FORM = 'https://tally.so/r/pbREOV';
-const PREPRETEMPORADA_FORM = 'https://tally.so/r/XxG5eO';
+
+function cleanChromiumLocks(dir) {
+  if (!fs.existsSync(dir)) return;
+
+  const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+
+  function scan(currentPath) {
+    let items = [];
+    try {
+      items = fs.readdirSync(currentPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const item of items) {
+      const fullPath = path.join(currentPath, item.name);
+
+      if (item.isDirectory()) scan(fullPath);
+      else if (lockFiles.includes(item.name)) {
+        try {
+          fs.rmSync(fullPath, { force: true });
+          console.log(`Lock Chromium eliminado: ${fullPath}`);
+        } catch {}
+      }
+    }
+  }
+
+  scan(dir);
+}
+
+cleanChromiumLocks(AUTH_PATH);
 
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -91,9 +90,9 @@ function sleep(ms) {
 
 function humanDelay(text) {
   const length = (text || '').length;
-  const base = 5500;
-  const extra = Math.min(length * 45, 9000);
-  return base + extra + Math.floor(Math.random() * 3000);
+  const base = 2500;
+  const extra = Math.min(length * 25, 5500);
+  return base + extra + Math.floor(Math.random() * 1200);
 }
 
 function normalizeText(text) {
@@ -151,19 +150,12 @@ function markBotMessage(chatId, body) {
 
 function wasRecentlySentByBot(chatId, body) {
   const last = botSentMessages.get(chatId);
-
-  if (last && Date.now() - last < 90000) {
-    return true;
-  }
+  if (last && Date.now() - last < 90000) return true;
 
   const key = normalizeText(body).slice(0, 180);
   const bodyTime = recentBotBodies.get(key);
 
-  if (bodyTime && Date.now() - bodyTime < 90000) {
-    return true;
-  }
-
-  return false;
+  return Boolean(bodyTime && Date.now() - bodyTime < 90000);
 }
 
 async function sendDanielaMessage(chatId, text) {
@@ -172,7 +164,7 @@ async function sendDanielaMessage(chatId, text) {
 }
 
 function isEnglish(text) {
-  return /\b(hello|hi|price|training|academy|football|soccer|player|schedule|where|how much|english|international|information|register|sign up|summer|camp|clinic)\b/i.test(text);
+  return /\b(hello|hi|price|training|academy|football|soccer|player|schedule|where|how much|english|international|information|register|sign up|camp|clinic)\b/i.test(text);
 }
 
 function getMadridHour() {
@@ -203,32 +195,50 @@ function shouldAlertCEO(text) {
     t.includes('director') ||
     t.includes('direccion') ||
     t.includes('ceo') ||
-    t.includes('fuera de plazo') ||
     t.includes('urgente') ||
     t.includes('problema') ||
     t.includes('molesto') ||
     t.includes('enfadado') ||
     t.includes('devolucion') ||
-    t.includes('devolver') ||
     t.includes('dinero') ||
     t.includes('hablar con manuel') ||
     t.includes('hablar con ivan') ||
     t.includes('hablar con iván') ||
-    t.includes('otra persona') ||
     t.includes('persona real') ||
+    t.includes('otra persona') ||
     t.includes('audio') ||
     t.includes('nota de voz')
   );
 }
 
-function isPrePretemporadaFormConfirmation(text) {
+function basicFallback(text) {
   const t = normalizeText(text);
 
-  return (
-    t.includes('acabo de completar el formulario de inscripcion de la pre pretemporada special one 2026') ||
-    t.includes('acabo de completar el formulario de la pre pretemporada special one 2026') ||
-    t.includes('quedo pendiente de la confirmacion de mi solicitud')
-  );
+  if (isEnglish(text)) {
+    return 'Hi 😊 This is Daniela from Special One Academy.\n\nI can help you with training information, schedules, location or registration.\n\nWhat would you like to know?';
+  }
+
+  if (t.includes('hola') || t.includes('buenas') || t.includes('disponible')) {
+    return 'Buenas 😊 Soy Daniela de Special One Academy.\n\nSí, dígame. ¿En qué puedo ayudarle?';
+  }
+
+  if (t.includes('precio') || t.includes('cuanto') || t.includes('cuánto')) {
+    return 'Claro 😊 Depende del tipo de entrenamiento o programa que necesite.\n\n¿Sería para tecnificación semanal, un clinic puntual o un jugador internacional?';
+  }
+
+  if (t.includes('horario') || t.includes('cuando') || t.includes('cuándo')) {
+    return 'Le explico 😊 Los horarios dependen del grupo, edad y programa.\n\n¿Me dice la edad del jugador y qué tipo de entrenamiento busca?';
+  }
+
+  if (t.includes('ubicacion') || t.includes('ubicación') || t.includes('donde') || t.includes('dónde')) {
+    return 'Estamos en Club Río Grande, en Mairena del Aljarafe, Sevilla 😊\n\n¿Quiere que le pase información sobre entrenamientos?';
+  }
+
+  if (t.includes('apuntar') || t.includes('inscripcion') || t.includes('inscripción') || t.includes('formulario')) {
+    return `Perfecto 😊 Para entrenamientos de tecnificación puede completar este formulario:\n\n${TRAINING_FORM}\n\nCuando lo recibamos, revisamos la solicitud.`;
+  }
+
+  return 'Perfecto 😊 Cuénteme un poco qué necesita y le oriento.\n\n¿Es para información de entrenamientos, horarios, precios o inscripción?';
 }
 
 async function alertCEOs({ from, userMessage, reason, aiResponse }) {
@@ -260,7 +270,7 @@ Desde vuestro móvil personal al WhatsApp de empresa:
     try {
       await sendDanielaMessage(ceo, alertText);
     } catch (error) {
-      console.error(`Error avisando a CEO ${ceo}:`, error.message);
+      console.error(`Error avisando a CEO ${ceo}:`, error?.stack || error?.message || error);
     }
   }
 }
@@ -282,183 +292,101 @@ async function getDanielaResponse(from, text) {
   const systemPrompt = `
 Eres Daniela, recepcionista de Special One Academy por WhatsApp.
 
-MISIÓN:
-Atender como una recepcionista real de una academia de fútbol.
-Tu trabajo es escuchar, entender, orientar y avanzar la conversación sin parecer un bot.
+Tu misión es atender como una persona real: amable, breve, clara y útil.
 
-MUY IMPORTANTE:
-No eres una FAQ.
-No eres una web.
-No eres un folleto.
-No sueltes toda la información de golpe.
-No hagas interrogatorios largos.
-No inventes datos.
-
-ESTILO:
-- Natural, breve, humana y cercana.
-- Hablas de usted.
-- Tono andaluz suave, sin exagerar.
+Estilo:
+- Español natural de España.
+- Cercana y profesional.
 - Máximo 80 palabras normalmente.
-- 2 a 5 líneas.
-- Una sola idea principal por mensaje.
-- Máximo una pregunta por mensaje.
-- No uses listas salvo que el cliente pida claramente resumen, precios u horarios.
-- No abuses de emojis. Puedes usar 😊 o ⚽ si encaja.
-- No digas "soy IA".
-- No digas "soy bot" dentro de horario.
-- No digas "asistirle".
-- No digas "información específica".
+- No sueltes toda la información de golpe.
+- Haz como máximo una pregunta por mensaje.
+- No parezcas una IA.
+- No digas "soy bot".
 - No uses lenguaje corporativo.
+- No inventes precios, fechas ni plazas.
+- Si no sabes algo, di que lo consultas con dirección.
 
-SALUDO:
-Si el cliente solo saluda, responde:
-"Hola 😊 Soy Daniela de Special One.
+Special One Academy:
+- Academia de tecnificación y formación futbolística.
+- Sede: Club Río Grande, Ctra. San Juan Palomares, 9, 41927 Mairena del Aljarafe, Sevilla.
+- Teléfono: +34 614 80 60 29.
+- Email: academyspecialone@gmail.com.
+- Instagram/TikTok: @specialoneacademy_.
+- Categorías: desde prebenjamín hasta juvenil.
+
+Programas actuales:
+1. Special One Training:
+Tecnificación semanal durante la temporada. Grupos reducidos.
+Formulario: ${TRAINING_FORM}
+
+2. Special One Experience:
+Clinics y eventos especiales cuando hay convocatoria abierta.
+
+3. Special One International Experience:
+Programa para jugadores extranjeros o jugadores que buscan experiencia en fútbol español.
+Formulario: ${INTERNATIONAL_FORM}
+
+Importante:
+La Pre Pretemporada 2026 ya terminó. Si preguntan por eso, explica que esa campaña ya finalizó y ofrece Training o próximos clinics.
+
+Si solo saludan:
+"Buenas 😊 Soy Daniela de Special One Academy.
 
 ¿En qué puedo ayudarle?"
 
-HORARIO:
-Horario normal: 09:00 a 22:00.
-Fuera de horario, si habla en español:
-"Ahora mismo estamos fuera de horario 😊
+Si piden precios:
+No des precio cerrado si no está confirmado. Pregunta primero por el programa y edad del jugador.
 
-Dejo su consulta anotada para revisarla en cuanto volvamos.
+Si quieren apuntarse:
+Pasa el formulario de Special One Training si encaja:
+${TRAINING_FORM}
 
-Si me indica brevemente qué necesita intentaré orientarle."
+Escala a dirección añadiendo [[AVISAR_CEO]] si hay:
+queja, reclamación, descuento, cliente molesto, dirección, Manuel, Iván, audio, situación compleja o algo que no puedas resolver con seguridad.
 
-Fuera de horario no mantengas conversaciones largas en español.
-Si escribe en inglés, puedes atender en inglés.
-
-SPECIAL ONE ACADEMY:
-Academia de tecnificación y formación futbolística.
-Sede: Club Río Grande, Ctra. San Juan Palomares, 9, 41927 Mairena del Aljarafe, Sevilla.
-Teléfono: +34 614 80 60 29.
-Email: academyspecialone@gmail.com.
-Instagram/TikTok: @specialoneacademy_.
-Categorías: desde prebenjamín hasta juvenil.
-
-PROGRAMAS:
-Special One Training:
-Tecnificación semanal durante la temporada.
-Grupos reducidos.
-Formulario: ${TRAINING_FORM}
-
-Special One Experience:
-Clinics y eventos especiales de Navidad, Semana Santa, verano y otros eventos.
-Solo hay formulario cuando hay clinic abierto.
-
-Special One International Experience:
-Programa internacional para jugadores extranjeros o jugadores que buscan experiencia en fútbol español.
-Formulario: ${INTERNATIONAL_FORM}
-
-PRE PRETEMPORADA SPECIAL ONE 2026:
-Es la campaña principal actual de verano.
-Fechas: del 29 de junio al 31 de julio.
-Objetivo: mantener ritmo competitivo en verano y llegar mejor a la pretemporada del equipo.
-Trabajo: físico aplicado al fútbol, fuerza, agilidad, coordinación, control, pase, conducción, regate, finalización y situaciones reales de juego.
-Mañanas: lunes a viernes de 09:00 a 11:00.
-Tardes: lunes, miércoles y jueves de 20:00 a 22:00.
-No hay martes tarde ni viernes tarde.
-Pack 5 sesiones: 99€.
-Pack 10 sesiones: 179€.
-Promoción hasta el 21 de junio: Pack 10 sesiones por 169€ + camiseta oficial incluida.
-Camiseta oficial: 15€.
-Equipación completa camiseta + calzona: 20€.
-Formulario: ${PREPRETEMPORADA_FORM}
-
-CÓMO HABLAR DE VERANO:
-Si pregunta "tenéis algo en verano", responde algo parecido a:
-"Sí 😊 Ahora en verano estamos preparando la Pre Pretemporada Special One.
-
-Son entrenamientos durante julio para que el jugador no pierda ritmo y llegue mejor a la pretemporada.
-
-¿Sería para su hijo?"
-
-Si pregunta "en qué consiste":
-Explica objetivo y tipo de trabajo. No des precios si no los pide.
-
-Si pregunta "precio":
-Da precios y promoción. No mandes todo lo demás.
-
-Si pregunta "horario":
-Da horarios. No mandes todo lo demás.
-
-Si dice "quiero apuntarme", "formulario", "reservar" o "inscripción":
-Manda el formulario:
-${PREPRETEMPORADA_FORM}
-
-Y añade:
-"Cuando lo complete, nos llega la solicitud y podemos revisarla."
-
-PRECIOS:
-No inventes precios.
-Si no está confirmado, di que depende del formato o que lo consulta.
-Si preguntan por Training, no des precio cerrado.
-Si preguntan por Experience, depende del clinic.
-Si preguntan por International, depende del programa.
-
-DESCUENTOS:
-No hay descuentos generales.
-Si insiste:
-"Lo consulto con dirección y le digo algo en cuanto pueda."
-Añade [[AVISAR_CEO]].
-
-FORMULARIOS:
-No pidas 7 datos seguidos.
-Primero habla normal.
-Si procede, pide solo un dato:
-"¿Me dice el nombre del jugador?"
-o
-"¿Qué edad tiene?"
-o
-"¿En qué club juega ahora?"
-Solo manda formulario cuando haya intención clara.
-
-ESCALADO:
-Añade [[AVISAR_CEO]] si hay:
-queja, reclamación, descuento, dirección, Manuel, Iván, otra persona, cliente molesto, cliente insistente, audio, situación compleja o algo que no puedas resolver con seguridad.
-
-INGLÉS:
-Si escribe en inglés, responde en inglés natural.
-
-ANTES DE RESPONDER:
-Pregúntate:
-¿Esto lo escribiría una recepcionista real por WhatsApp?
-Si parece folleto, acórtalo.
-Si parece robot, hazlo más humano.
-Si parece interrogatorio, pide solo una cosa.
-
-CONTEXTO:
+Contexto:
 Fuera de horario: ${outOfHours ? 'SÍ' : 'NO'}
 Inglés detectado: ${english ? 'SÍ' : 'NO'}
 `;
 
-  const completion = await safeOpenAIRequest({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: systemPrompt },
+  try {
+    const completion = await safeOpenAIRequest({
+      model: OPENAI_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...history,
+        { role: 'user', content: text }
+      ],
+      temperature: 0.7,
+      max_tokens: 220
+    });
+
+    let response = completion?.choices?.[0]?.message?.content || '';
+
+    if (!response.trim()) response = basicFallback(text);
+
+    const escalate = response.includes('[[AVISAR_CEO]]') || shouldAlertCEO(text);
+    response = response.replace('[[AVISAR_CEO]]', '').trim();
+
+    conversations.set(from, [
       ...history,
-      { role: 'user', content: text }
-    ],
-    temperature: 0.85,
-    max_tokens: 260
-  });
+      { role: 'user', content: text },
+      { role: 'assistant', content: response }
+    ].slice(-10));
 
-  let response = completion?.choices?.[0]?.message?.content || '';
+    return { response, escalate };
+  } catch (error) {
+    console.error('OpenAI Daniela error:', error?.stack || error?.message || error);
 
-  if (!response.trim()) {
-    response = 'Perdone, creo que no he podido leer bien el mensaje. ¿Me lo puede repetir un momento?';
+    const response = basicFallback(text);
+    conversations.set(from, [
+      ...history,
+      { role: 'user', content: text },
+      { role: 'assistant', content: response }
+    ].slice(-10));
+
+    return { response, escalate: shouldAlertCEO(text) };
   }
-
-  const escalate = response.includes('[[AVISAR_CEO]]') || shouldAlertCEO(text);
-  response = response.replace('[[AVISAR_CEO]]', '').trim();
-
-  conversations.set(from, [
-    ...history,
-    { role: 'user', content: text },
-    { role: 'assistant', content: response }
-  ].slice(-10));
-
-  return { response, escalate };
 }
 
 client.on('qr', async (qr) => {
@@ -485,6 +413,7 @@ client.on('ready', () => {
   whatsappStatus = 'ready';
   qrImage = '';
   console.log('✅ DANIELA SPECIAL ONE ONLINE');
+  console.log(`✅ Daniela model: ${OPENAI_MODEL}`);
 });
 
 client.on('disconnected', (reason) => {
@@ -527,9 +456,8 @@ client.on('message_create', async (message) => {
 
     pauseChat(chatId, 2);
     console.log(`Chat pausado por intervención humana real desde WhatsApp empresa: ${chatId}`);
-
   } catch (error) {
-    console.error('Error en message_create:', error.message);
+    console.error('Error en message_create:', error?.stack || error?.message || error);
   }
 });
 
@@ -594,19 +522,6 @@ client.on('message', async (message) => {
 
     if (!text) return;
 
-    if (isPrePretemporadaFormConfirmation(text)) {
-      const reply =
-`Perfecto 😊
-
-Hemos recibido su solicitud para la Pre Pretemporada Special One 2026.
-
-Ahora iremos organizando grupos y horarios según las solicitudes recibidas.`;
-
-      await sleep(humanDelay(reply));
-      await sendDanielaMessage(from, reply);
-      return;
-    }
-
     const chat = await message.getChat();
 
     try {
@@ -634,12 +549,11 @@ Ahora iremos organizando grupos y horarios según las solicitudes recibidas.`;
 
       pauseChat(from, 2);
     }
-
   } catch (error) {
     console.error('Error Daniela completo:', error?.stack || error?.message || error);
 
     try {
-      const fallback = 'Buenas 😊 Soy Daniela de Special One Academy.\n\nAhora mismo puedo ayudarle con información sobre entrenamientos, horarios, ubicación o inscripciones.\n\n¿Me dice qué necesita?';
+      const fallback = basicFallback(message?.body || '');
       await sendDanielaMessage(message.from, fallback);
     } catch (sendError) {
       console.error('Error enviando fallback Daniela:', sendError?.stack || sendError?.message || sendError);
@@ -648,7 +562,7 @@ Ahora iremos organizando grupos y horarios según las solicitudes recibidas.`;
 });
 
 app.get('/', (req, res) => {
-  res.send(`Daniela activa 🚀 | Estado WhatsApp: ${whatsappStatus}`);
+  res.send(`Daniela activa | Estado WhatsApp: ${whatsappStatus}`);
 });
 
 app.get('/health', (req, res) => {
@@ -671,7 +585,7 @@ app.get('/qr', (req, res) => {
       <body style="font-family:Arial;text-align:center;padding:40px;">
         <h1>QR WhatsApp Special One</h1>
         <img src="${qrImage}" width="360"/>
-        <p>Escanéalo desde WhatsApp → Dispositivos vinculados</p>
+        <p>Escanéalo desde WhatsApp -> Dispositivos vinculados</p>
         <p>Estado actual: ${whatsappStatus}</p>
       </body>
     </html>
@@ -680,9 +594,10 @@ app.get('/qr', (req, res) => {
 
 app.listen(PORT, () => {
   console.log('Servidor web activo en puerto', PORT);
+  console.log('VERSION DANIELA SAFE FALLBACK 2026-09-09');
 });
 
 client.initialize().catch((error) => {
   whatsappStatus = 'initialize_error';
-  console.error('❌ Error inicializando WhatsApp:', error);
+  console.error('❌ Error inicializando WhatsApp:', error?.stack || error?.message || error);
 });
